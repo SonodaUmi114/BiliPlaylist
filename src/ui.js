@@ -217,8 +217,7 @@ var BiliUI = (function () {
             <button data-mode="web-fullscreen">网页全屏</button>
             <button data-mode="fullscreen">全屏</button>
           </div>
-          <button class="refresh-all" id="syncHistory" title="同步观看历史（官方断点，本地保存）">⟲</button>
-          <button class="refresh-all" id="refreshAll" title="刷新列表（重新同步列表与进度）">↻</button>
+          <button class="refresh-all" id="refreshAll" title="刷新列表 + 同步观看历史（官方断点，本地保存）">↻</button>
           <button class="close" id="close" title="关闭">✕</button>
         </header>
         <ul class="list" id="list"></ul>
@@ -230,8 +229,11 @@ var BiliUI = (function () {
     panel = root.querySelector('#panel');
     listEl = root.querySelector('#list');
     countEl = root.querySelector('#count');
-    root.querySelector('#syncHistory').addEventListener('click', () => syncHistory({ pages: 5, silent: false }));
-    root.querySelector('#refreshAll').addEventListener('click', () => renderList());
+    root.querySelector('#refreshAll').addEventListener('click', () => {
+      renderList();
+      // 历史同步已合并到刷新按钮（小量翻页，≤5 页）
+      syncHistory({ pages: 5, silent: false });
+    });
     root.querySelector('#close').addEventListener('click', () => togglePanel(false));
     // 页面级样式（空间页卡片勾选框用）
     if (!document.getElementById('biliplaylist-page-css')) {
@@ -548,9 +550,9 @@ var BiliUI = (function () {
     t._t = setTimeout(() => t.classList.remove('show'), 2600);
   }
 
-  // ---------- 官方观看历史同步（断点补充；只保存播放列表内视频，本地永久保留） ----------
-  // 说明：主断点来源是"打开视频时从页面 __INITIAL_STATE__ 定向捕获"（content.js captureOfficialProgress）；
-  // 此按钮只做小量历史翻页补充（≤5 页，播放列表内视频都找到即提前结束）
+  // ---------- 官方观看历史同步（合并进刷新按钮；只保存播放列表内视频，本地永久保留） ----------
+  // 说明：断点来源 = ① 打开视频时 B 站播放器自身恢复"上次看到"（插件不干预）② 页面加载 5s 后捕获播放器实际位置
+  //       ③ 关闭页面时保存一次 ④ 此同步做小量历史翻页补充（≤5 页，播放列表内视频都找到即提前结束）
   let historySyncing = false;
   async function syncHistory(opts) {
     opts = opts || {};

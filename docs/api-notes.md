@@ -29,7 +29,7 @@
 - 参数：`max`（上一页返回的 `data.cursor.max`，首屏省略）、`ps`（默认 30）
 - 返回 `data.list[]`：`title`、`author_name`、**`history.bvid`（实测：bvid 在 history 对象里，不在顶层！）**、`progress`（断点秒）、`duration`、`history.{page,part,cid,business,view_at}`
 - 需登录（未登录返回 -101）；仅取 `history.business === 'archive'` 的视频条目
-- **断点主来源（2025 切换）**：① 打开视频页时从 `window.__INITIAL_STATE__.progress` **定向捕获**（B 站续播用的官方数据，零翻页）② **关闭标签页/切走时本地保存一次精确位置**（`video.currentTime`，解决官方上报滞后——"打开总是最新"的关键）③ 侧边栏「⟲」按钮小量历史翻页补充（≤5 页，播放列表内视频都找到即提前结束）。恢复时本地/官方取较新值。只保存播放列表内视频 → `biliplaylist:progress` + `biliplaylist:history`（本地永久备份）
+- **断点（2025 最终方案）**：**B 站播放器自身恢复"上次看到"**（官方最新，播放器显示该文案），插件**不主动 seek**（避免用旧值覆盖播放器正确恢复）；插件只**捕获保存**：① 页面加载 5s 后读取播放器实际位置（含 B 站恢复后的值）② 关闭标签页/切走时保存一次精确位置 ③ 全局刷新按钮合并小量历史翻页（≤5 页，播放列表内视频都找到即提前结束）。仅当 B 站未恢复（5s 后仍在开头）时插件本地兜底 seek。只保存播放列表内视频 → `biliplaylist:progress` + `biliplaylist:history`（本地永久备份）
 - ⚠️ 待实测：`__INITIAL_STATE__.progress` 是否存在于当前页面（若不存在需换方案）；`cursor.max` 翻页语义
 - 旧 video 元素轮询方案已停用，备份于分支 `backup/old-progress-video-element`
 

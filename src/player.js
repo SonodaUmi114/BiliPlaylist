@@ -5,9 +5,11 @@
 'use strict';
 
 var BiliPlayer = (function () {
-  // 断点方案（2025）：官方历史为准，但关闭页面时本地保存一次精确进度兜底（解决官方上报滞后）。
+  // 断点方案（2025）：B 站播放器自身恢复"上次看到"（官方最新），插件**不再主动 seek**（避免打架）；
+  // 插件只做捕获保存（页面加载 5s 后读播放器实际位置 + 关闭时保存一次），B 站未恢复时才本地兜底。
   // 旧的 video 元素"轮询"保存仍停用；备份在分支 backup/old-progress-video-element
   const USE_OFFICIAL_PROGRESS = true; // true = 关闭轮询，只保留关闭时一次保存
+  const DO_NOT_SEEK = true;           // 不再主动 seek（B 站播放器自己恢复为准）
 
   let bvid = null;
   let part = 1;
@@ -66,7 +68,6 @@ var BiliPlayer = (function () {
 
   function bindVideo() {
     console.log('[BiliPlaylist] player 适配已绑定 bvid=' + bvid + ' p=' + part);
-    restoreProgress();
     tryRestoreWebFullscreen();
     video.addEventListener('ended', onEnded);
     document.addEventListener('fullscreenchange', onFullscreenChange);
@@ -74,11 +75,33 @@ var BiliPlayer = (function () {
       // 旧方案（已停用）：video 元素轮询保存断点
       video.addEventListener('timeupdate', onTimeUpdate);
     }
-    // 关闭标签页/切走时保存一次精确进度（官方上报可能滞后，本地兜底保证"打开总是最新"）
+    // 关闭标签页/切走时保存一次精确进度（本地备份，不 seek）
     window.addEventListener('pagehide', () => saveLocalProgress());
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') saveLocalProgress();
     });
+    // 5s 后捕获播放器实际位置（含 B 站自身恢复后的位置）做本地备份；
+    // 若此时仍停在开头且本地有断点 → 说明 B 站未恢复，本地兜底 seek
+    setTimeout(() => captureCurrentPosition(), 5000);
+  }
+
+  // 捕获当前播放位置（本地备份；B 站未恢复断点时兜底 seek）
+  async function captureCurrentPosition() {
+    if (!video || !bvid) return;
+    try {
+      const cur = Math.floor(video.currentTime || 0);
+      const progress = await BiliStorage.getProgress();
+      const p = progress[bvid] || {};
+      if (cur > 5 && cur >= (p.time || 0)) {
+        progress[bvid] = { part, time: cur, updatedAt: Date.now(), source: 'player' };
+        await BiliStorage.saveProgress(progress);
+      }
+      // B 站播放器未恢复（5s 后仍在开头）且本地有断点 → 兜底 seek
+      if ((p.time || 0) > 5 && cur < 5 && video.duration > 10 && p.time < video.duration - 10) {
+        video.currentTime = p.time;
+        console.log('[BiliPlaylist] B站未恢复断点，本地兜底 ' + p.time + 's');
+      }
+    } catch (e) { /* 忽略 */ }
   }
 
   // 关闭/切走时保存一次精确位置（不轮询；时间不小于本地已有值才覆盖）
@@ -163,8 +186,9 @@ var BiliPlayer = (function () {
   }
 
   // —— 进度恢复（>30s 且留出结尾 30s 才恢复，避免干扰重看） ——
-  const MIN_RESUME = 5;   // 看过 5 秒以上就恢复断点（用户要求精确续播）
+  const MIN_RESUME = 5;   // 兜底恢复阈值（仅 B 站未恢复时使用）
   async function restoreProgress() {
+    if (DO_NOT_SEEK) return; // 2025: 不再主动 seek，以 B 站播放器自身恢复为准
     try {
       const progress = await BiliStorage.getProgress();
       const p = progress[bvid];
@@ -273,8 +297,9 @@ var BiliPlayer = (function () {
     BiliStorage.setPlayerMode(fs ? 'fullscreen' : 'default');
   }
 
-  // 应用官方历史同步来的断点（同步/捕获完成后调用；仅当保存值明显超前当前播放位置时 seek，避免覆盖用户手动位置）
+  // 应用官方历史同步来的断点（已停用主动 seek，仅保留兜底由 captureCurrentPosition 处理）
   async function applySavedProgress() {
+    if (DO_NOT_SEEK) return;
     if (!video || !bvid) return;
     try {
       const progress = await BiliStorage.getProgress();
