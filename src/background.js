@@ -14,6 +14,29 @@ async function pageContextFetch(url, opts) {
   return { ok: resp.ok, status: resp.status, text: text };
 }
 
+// 在页面 MAIN world 提取播放器初始状态（官方断点等），只取需要的字段
+function extractPlayerState() {
+  try {
+    const s = window.__INITIAL_STATE__;
+    if (!s) return null;
+    const vd = s.videoData || {};
+    return {
+      bvid: s.bvid || vd.bvid || null,
+      cid: s.cid || null,
+      progress: (typeof s.progress === 'number') ? s.progress : 0,
+      videoData: {
+        title: vd.title || '',
+        owner: (vd.owner && vd.owner.name) || '',
+        pubdate: vd.pubdate || 0,
+        duration: vd.duration || 0,
+        pages: Array.isArray(vd.pages) ? vd.pages.length : 0
+      }
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     try {
@@ -32,6 +55,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             world: 'MAIN',
             func: pageContextFetch,
             args: [msg.url, msg.opts || {}]
+          });
+          sendResponse({ ok: true, data: results[0] && results[0].result });
+          break;
+        }
+        case 'read-main': {
+          // 读取页面 MAIN world 的初始状态（官方断点 __INITIAL_STATE__.progress）
+          if (!sender.tab || sender.frameId === undefined) {
+            sendResponse({ ok: false, error: 'no sender frame' });
+            return;
+          }
+          const results = await chrome.scripting.executeScript({
+            target: { tabId: sender.tab.id, frameIds: [sender.frameId] },
+            world: 'MAIN',
+            func: extractPlayerState,
+            args: []
           });
           sendResponse({ ok: true, data: results[0] && results[0].result });
           break;

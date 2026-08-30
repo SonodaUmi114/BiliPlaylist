@@ -25,13 +25,13 @@
 - 原因：content script 的 fetch 受扩展隔离上下文影响，cookie/CORS 行为与站点自身请求不同；MAIN world fetch 等同站点自己发请求，自动带 cookie（登录态、buvid3）与 CORS
 - 已用此方案实现 `api.js`，需实测确认带 cookie 成功
 
-### 1.4 官方观看历史 `GET /x/web-interface/history/cursor`（断点来源，2025 启用）
+### 1.4 官方观看历史 `GET /x/web-interface/history/cursor`（断点补充，2025 启用）
 - 参数：`max`（上一页返回的 `data.cursor.max`，首屏省略）、`ps`（默认 30）
-- 返回 `data.list[]`：`title`、`author_name`、`bvid`、`progress`（断点秒）、`duration`、`history.{page,part,cid,business,view_at}`
+- 返回 `data.list[]`：`title`、`author_name`、**`history.bvid`（实测：bvid 在 history 对象里，不在顶层！）**、`progress`（断点秒）、`duration`、`history.{page,part,cid,business,view_at}`
 - 需登录（未登录返回 -101）；仅取 `history.business === 'archive'` 的视频条目
-- 用途：**断点记忆官方来源**——同步时只保存播放列表内视频，写入 `biliplaylist:progress`（恢复用）+ `biliplaylist:history`（本地永久备份，含视频名/UP名/分P/断点/观看时间）
-- 同步触发：视频页加载自动前 2 页（静默）+ 侧边栏「历史」按钮深翻页（30 页）
-- ⚠️ 待实测：登录态、翻页深度上限（B 站服务端保留的历史条数）、`cursor.max` 语义
+- **断点主来源（2025 切换）**：打开视频页时从 `window.__INITIAL_STATE__.progress` **定向捕获**（B 站续播用的官方数据，零翻页、瞬间完成），只保存播放列表内视频 → `biliplaylist:progress` + `biliplaylist:history`（本地永久备份）
+- 侧边栏「⟲」按钮：小量历史翻页补充（≤5 页，播放列表内视频都找到即提前结束）
+- ⚠️ 待实测：`__INITIAL_STATE__.progress` 是否存在于当前页面（若不存在需换方案）；`cursor.max` 翻页语义
 - 旧 video 元素轮询方案已停用，备份于分支 `backup/old-progress-video-element`
 
 ---

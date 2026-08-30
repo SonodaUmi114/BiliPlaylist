@@ -51,6 +51,8 @@ function initTopLogic() {
   const vm = location.pathname.match(/^\/video\/(BV\w+)/);
   if (vm) {
     ensureCurrentVideoInfo(vm[1]);
+    // 官方断点定向捕获：视频页初始状态自带官方观看进度，直接读取保存（快、准，不拉全量历史）
+    setTimeout(() => captureOfficialProgress(vm[1]), 2500);
   }
 
   // —— 播放器窗口模式恢复（仅播放列表跳转携带 playerMode 参数时） ——
@@ -68,6 +70,55 @@ function initTopLogic() {
       handleVideoCompleted(msg.bvid);
     }
   });
+}
+
+// 定向捕获官方断点：从视频页 __INITIAL_STATE__ 读取官方观看进度（B 站续播用的数据），
+// 保存到本地（仅播放列表内视频），并应用断点
+async function captureOfficialProgress(bvid) {
+  try {
+    const res = await chrome.runtime.sendMessage({ type: 'read-main' });
+    const s = res && res.ok && res.data;
+    if (!s || !s.bvid) {
+      console.warn('[BiliPlaylist] 未捕获到官方断点（__INITIAL_STATE__ 不可用，待实测）');
+      return;
+    }
+    if (s.bvid !== bvid) return;
+    const time = Math.floor(s.progress || 0);
+    if (!(time > 5)) return; // 看过 5 秒以上才记录
+    const part = parseInt(new URLSearchParams(location.search).get('p') || '1', 10) || 1;
+    const list = await BiliStorage.getList();
+    if (!list.some((it) => it.bvid === bvid)) return; // 只保存播放列表内视频
+
+    const progress = await BiliStorage.getProgress();
+    const prev = progress[bvid];
+    if (!prev || time > (prev.time || 0) || !(prev.updatedAt || 0)) {
+      progress[bvid] = { part, time, updatedAt: Date.now() };
+      await BiliStorage.saveProgress(progress);
+    }
+    const hist = await BiliStorage.getHistory();
+    const hm = new Map(hist.map((h) => [h.bvid + ':' + (h.part || 1), h]));
+    const key = bvid + ':' + part;
+    const old = hm.get(key);
+    const vd = s.videoData || {};
+    if (!old || time >= (old.time || 0)) {
+      hm.set(key, {
+        bvid,
+        title: vd.title || '',
+        author: vd.owner || '',
+        part,
+        partTitle: '',
+        time,
+        duration: vd.duration || 0,
+        viewAt: Date.now()
+      });
+      await BiliStorage.saveHistory(Array.from(hm.values()));
+    }
+    console.log('[BiliPlaylist] 官方断点已捕获 bvid=' + bvid + ' p=' + part + ' time=' + time);
+    // 应用断点（播放器已就绪则直接 seek）
+    try { BiliPlayer.applySavedProgress(); } catch (e) { /* 忽略 */ }
+  } catch (e) {
+    console.warn('[BiliPlaylist] 捕获官方断点失败', e);
+  }
 }
 
 // 顶层在视频页写入当前视频信息；列表项缺分P数/UP主名时调用 view 接口补全（1 次/视频，之后缓存于列表）

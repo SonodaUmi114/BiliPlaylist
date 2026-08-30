@@ -82,12 +82,7 @@ var BiliUI = (function () {
       border: none; background: none; color: #9499a0; font-size: 15px; cursor: pointer; padding: 2px 6px;
     }
     .refresh-all:hover, .close:hover { color: #18191c; }
-    .hist-btn {
-      border: 1px solid #e3e5e7; background: #fff; color: #61666d;
-      font-size: 11px; padding: 2px 8px; border-radius: 10px; cursor: pointer; white-space: nowrap;
-    }
-    .hist-btn:hover { background: #f5f6f7; }
-    .hist-btn.busy { opacity: .5; pointer-events: none; }
+    .refresh-all.busy { opacity: .5; pointer-events: none; }
     .list { flex: 1; overflow-y: auto; padding: 8px; list-style: none; }
     .item {
       display: flex; gap: 8px; padding: 10px; border-radius: 8px; cursor: grab;
@@ -202,10 +197,6 @@ var BiliUI = (function () {
     renderList();
     initStorageSync();
     initSpaWatcher();
-    // 视频页自动同步官方历史（前 2 页，静默；手动按钮可深翻页）
-    if (isVideoPage) {
-      setTimeout(() => syncHistory({ pages: 2, silent: true }), 2000);
-    }
   }
 
   // ---------- Shadow DOM 骨架 ----------
@@ -226,7 +217,7 @@ var BiliUI = (function () {
             <button data-mode="web-fullscreen">网页全屏</button>
             <button data-mode="fullscreen">全屏</button>
           </div>
-          <button class="hist-btn" id="syncHistory" title="同步观看历史（官方接口，断点来源，本地永久保存）">历史</button>
+          <button class="refresh-all" id="syncHistory" title="同步观看历史（官方断点，本地保存）">⟲</button>
           <button class="refresh-all" id="refreshAll" title="刷新列表（重新同步列表与进度）">↻</button>
           <button class="close" id="close" title="关闭">✕</button>
         </header>
@@ -239,7 +230,7 @@ var BiliUI = (function () {
     panel = root.querySelector('#panel');
     listEl = root.querySelector('#list');
     countEl = root.querySelector('#count');
-    root.querySelector('#syncHistory').addEventListener('click', () => syncHistory({ pages: 30, silent: false }));
+    root.querySelector('#syncHistory').addEventListener('click', () => syncHistory({ pages: 5, silent: false }));
     root.querySelector('#refreshAll').addEventListener('click', () => renderList());
     root.querySelector('#close').addEventListener('click', () => togglePanel(false));
     // 页面级样式（空间页卡片勾选框用）
@@ -557,7 +548,9 @@ var BiliUI = (function () {
     t._t = setTimeout(() => t.classList.remove('show'), 2600);
   }
 
-  // ---------- 官方观看历史同步（断点来源；只保存播放列表内视频，本地永久保留） ----------
+  // ---------- 官方观看历史同步（断点补充；只保存播放列表内视频，本地永久保留） ----------
+  // 说明：主断点来源是"打开视频时从页面 __INITIAL_STATE__ 定向捕获"（content.js captureOfficialProgress）；
+  // 此按钮只做小量历史翻页补充（≤5 页，播放列表内视频都找到即提前结束）
   let historySyncing = false;
   async function syncHistory(opts) {
     opts = opts || {};
@@ -568,10 +561,11 @@ var BiliUI = (function () {
     try {
       const list = await BiliStorage.getList();
       const bvids = new Set(list.map((it) => it.bvid));
+      const found = new Set();
       let fetched = 0;
       let updated = 0;
       let max = 0;
-      const cap = opts.pages || 5;
+      const cap = Math.min(opts.pages || 5, 10); // 上限 10 页，避免过慢
       for (let page = 0; page < cap; page++) {
         let data;
         try {
@@ -588,17 +582,21 @@ var BiliUI = (function () {
         if (!cursorMax) break;
         max = cursorMax;
         fetched += entries.length;
-        // 只保留播放列表内、且是普通视频（archive）的条目
-        const mine = entries.filter((it) =>
-          it.bvid && bvids.has(it.bvid) && it.history && it.history.business === 'archive'
-        );
+        // bvid 在 history.bvid（实测发现不在顶层）
+        const mine = entries.filter((it) => {
+          const bvid = (it.history && it.history.bvid) || it.bvid;
+          if (!bvid || !bvids.has(bvid)) return false;
+          if (!it.history || it.history.business !== 'archive') return false;
+          found.add(bvid);
+          return true;
+        });
         if (mine.length) {
           const progress = await BiliStorage.getProgress();
           const hist = await BiliStorage.getHistory();
           const hm = new Map(hist.map((h) => [h.bvid + ':' + (h.part || 1), h]));
           let changed = false;
           for (const it of mine) {
-            const bvid = it.bvid;
+            const bvid = (it.history && it.history.bvid) || it.bvid;
             const partIdx = it.history.page || 1;
             const time = Math.floor(it.progress || 0);
             const viewAt = it.history.view_at || 0;
@@ -629,6 +627,8 @@ var BiliUI = (function () {
             await BiliStorage.saveHistory(Array.from(hm.values()));
           }
         }
+        // 播放列表内视频都找到了 → 提前结束
+        if (bvids.size > 0 && found.size >= bvids.size) break;
       }
       if (!opts.silent) {
         showToast(updated > 0
