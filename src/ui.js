@@ -249,6 +249,13 @@ var BiliUI = (function () {
   function initFab() {
     fab.addEventListener('click', () => togglePanel());
     document.addEventListener('mousemove', onMouseMove);
+    // 点击侧边栏外部任意位置 → 关闭侧边栏（点击扩展 UI 内部不关闭）
+    document.addEventListener('click', (e) => {
+      if (!open) return;
+      const path = (e.composedPath && e.composedPath()) || [];
+      if (path.indexOf(host) !== -1) return;
+      togglePanel(false);
+    });
   }
 
   function onMouseMove(e) {
