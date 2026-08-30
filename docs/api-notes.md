@@ -60,7 +60,8 @@
 - 添加完成 toast 提示（已添加 N 个，M 个重复已跳过）
 - 空间页 SPA 内 URL 变化（首次搜索/tab 切换）由 800ms 轮询驱动按钮更新，待实测
 - 卡片收集：`a[href*="/video/BV"]` 向上找 `.bili-video-card`（避免嵌套链接重复勾选），待实测
-- **发布日期提取与排序**：优先读卡片日期 DOM（选择器含 `[class*="date"]`/`[class*="pubdate"]`，格式兼容 2024-05-01 等）；**兜底**：DOM 提取不到时后台调 view 接口补全 `pubdate`（200ms 节流）再按升序重排（日期早的在前、先播放）。**待实测确认卡片日期选择器是否命中**
+- **发布日期提取与排序（日期选择器已实测确认）**：空间页卡片日期在 `.bili-video-card__subtitle > span`（如 `2024-06-12`），选择器已覆盖 `.bili-video-card__subtitle span` / `.bili-video-card__subtitle` 等；**兜底**：DOM 提取不到时后台调 view 接口补全 `pubdate`（200ms 节流）再按升序重排（日期早的在前、先播放）
+  - ✅ 2024-06-12 实测：`.bili-video-card__subtitle span` 文本为 `2024-06-12`
 
 ---
 

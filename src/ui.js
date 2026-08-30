@@ -636,7 +636,7 @@ var BiliUI = (function () {
 
   function findDateEl(card) {
     try {
-      return card.querySelector('.bili-video-card__info--date, .date, [class*="date"]');
+      return card.querySelector('.bili-video-card__info--date, .bili-video-card__subtitle span, .bili-video-card__subtitle, .date, [class*="date"], [class*="pubdate"]');
     } catch (e) {
       return null;
     }
@@ -722,7 +722,7 @@ var BiliUI = (function () {
     }
     if (!title) title = (card.getAttribute('title') || '').trim();
     let dateText = '';
-    const d = card.querySelector('.bili-video-card__info--date, .date, [class*="date"], [class*="pubdate"]');
+    const d = card.querySelector('.bili-video-card__info--date, .bili-video-card__subtitle span, .bili-video-card__subtitle, .date, [class*="date"], [class*="pubdate"]');
     if (d) dateText = d.textContent.trim();
     return { bvid, title, pubdate: parsePubdate(dateText), pages: null };
   }
