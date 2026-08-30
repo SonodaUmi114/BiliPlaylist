@@ -40,12 +40,12 @@
 ### 2.2 空间搜索页 `space.bilibili.com/{uid}/search?keyword=...`
 - 页面结构是否与投稿页同款卡片：⚠️ 待实测
 
-### 2.3 播放器 iframe
-- URL：`player.bilibili.com/player.html?bvid=...&p=N`（参数名 `p` 还是 `page`：⚠️ 待实测，当前实现两者都读）
-- video 元素：iframe 内 `document.querySelector('video')`：⚠️ 待实测
-- 分P列表 DOM（`getTotalParts` 用）：`.list-box .list-item` / `.video-parts-list .list-item` 等候选：⚠️ 待实测
-- 分P连播方案（已实现）：iframe 播完 → 自身刷新 `?p=N+1`（只刷新播放器 iframe，顶层页面不刷新，满足"不刷新模式"）；`p` / `page` 两个参数名都会设置以兼容
-- 分P总数来源（优先级）：① 顶层写入的 `biliplaylist:currentVideo.pages`（打开视频时若列表项缺分P数则调 view 接口补全并缓存）② 播放器分P列表 DOM（待实测）③ null（按已播完处理）
+### 2.3 播放器（2025 实测：内嵌主页面，非 iframe）
+- ✅ 实测：视频页 iframe 列表仅 `s1.hdslb.com/bfs/seed/jinkela/short/...` 工具 iframe（cols / leader-election），**无播放器 iframe**；`<video>` 在**顶层页面 DOM**
+- 适配层在顶层 frame 直接操作 video：`document.querySelector('video')`
+- 分P连播：优先点击页面分P列表（选集）下一分P（选择器候选见 `player.js clickNextPart`，待实测），兜底整页 `?p=N+1`
+- 分P总数来源（优先级）：① 顶层写入的 `biliplaylist:currentVideo.pages`（打开视频时若列表项缺分P数则调 view 接口补全并缓存）② 分P列表 DOM（待实测）③ null（按已播完处理）
+- 原 `player.bilibili.com` iframe 方案保留为兼容分支（manifest matches 仍含该域）
 - **进度记忆（断点）健壮性（v0.1 加固）**：适配层在 `player.bilibili.com` 或**任何含 `<video>` 的子 frame** 运行；iframe URL 无 `bvid` 参数时从顶层 `currentVideo` 兜底；每 5s 节流保存 + `pagehide`/`visibilitychange(hidden)` 强制保存；恢复阈值**看过 5 秒以上**即 seek（`loadedmetadata`/`loadeddata` 双时机，留 10s 尾）。**待实测确认**：是否出现日志 `player 适配已绑定 bvid=...`、`进度保存成功`、`已恢复进度`
 - "网页全屏"自动恢复（已实现，尽力而为）：跳转 URL 携带 `playerMode=web-fullscreen` → 顶层写 `biliplaylist:pendingWebFs` 标记 → iframe 加载后尝试点击网页全屏按钮（候选选择器见 `player.js pickWebFullscreenButton`）；未命中会打印 warn 日志，把实际 DOM 记录到本文件
 

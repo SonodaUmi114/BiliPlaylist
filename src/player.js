@@ -17,11 +17,11 @@ var BiliPlayer = (function () {
 
   async function init() {
     console.log('[BiliPlaylist] player 适配启动: ' + location.href);
-    bvid = getParam('bvid');
+    bvid = getBvidFromUrl();
     const pRaw = getParam('p') || getParam('page');
     part = parseInt(pRaw || '1', 10) || 1;
     if (!bvid) {
-      // 兜底：iframe URL 无 bvid 参数时，从顶层写入的 currentVideo 读取
+      // 兜底：URL 无 bvid 时，从顶层写入的 currentVideo 读取
       try {
         const cv = await BiliStorage.getCurrentVideo();
         if (cv && cv.bvid) {
@@ -31,10 +31,19 @@ var BiliPlayer = (function () {
       } catch (e) { /* 忽略 */ }
     }
     if (!bvid) {
-      console.warn('[BiliPlaylist] player iframe 未识别 bvid，跳过适配');
+      console.warn('[BiliPlaylist] 未识别 bvid，跳过适配');
       return;
     }
     pollForVideo();
+  }
+
+  // bvid：优先 URL query（bvid=），其次视频页路径 /video/BV...
+  function getBvidFromUrl() {
+    const q = getParam('bvid');
+    if (q) return q;
+    const m = location.pathname.match(/^\/video\/(BV\w+)/);
+    if (m) return m[1];
+    return null;
   }
 
   function pollForVideo() {
@@ -155,21 +164,24 @@ var BiliPlayer = (function () {
 
   // —— 播放结束 ——
   async function onEnded() {
-    // 1) 还有下一分P → 无刷新连播：iframe 自身刷新 p 参数（顶层页面不刷新）
+    // 1) 还有下一分P → 无刷新连播：优先点击页面分P列表（选集）中下一分P，失败回退整页跳转
     const total = await getTotalParts();
     if (total && part < total) {
       console.log('[BiliPlaylist] 分P ' + part + '/' + total + ' 结束，切换到下一分P');
       await saveProgress();
+      const next = part + 1;
+      if (clickNextPart(next)) {
+        part = next;
+        return;
+      }
       const u = new URL(location.href);
-      const next = String(part + 1);
-      // 兼容 p / page 两种参数名，确保 iframe 能识别
-      u.searchParams.set('p', next);
-      u.searchParams.set('page', next);
+      u.searchParams.set('p', String(next));
+      u.searchParams.set('page', String(next));
       location.href = u.toString();
       return;
     }
-    // 2) 全部分P播完 → 标记完成 + 通知顶层跳转列表下一个视频
-    console.log('[BiliPlaylist] bvid=' + bvid + ' 全部播完，通知顶层');
+    // 2) 全部分P播完 → 标记完成 + 通知跳转列表下一个视频
+    console.log('[BiliPlaylist] bvid=' + bvid + ' 全部播完，通知跳转下一视频');
     try {
       const progress = await BiliStorage.getProgress();
       progress[bvid] = Object.assign({}, progress[bvid] || {}, {
@@ -183,6 +195,32 @@ var BiliPlayer = (function () {
     chrome.runtime.sendMessage({ type: 'video-completed', bvid, part }).catch(() => {});
   }
 
+  // 点击页面分P列表（选集）中第 next 个分P，无刷新切换；找不到返回 false
+  function clickNextPart(next) {
+    const sels = [
+      '.video-parts-list [class*="item"]',
+      '.list-box [class*="item"]',
+      '[class*="part-list"] [class*="item"]',
+      '[class*="parts"] [class*="item"]'
+    ];
+    for (const sel of sels) {
+      try {
+        const nodes = document.querySelectorAll(sel);
+        for (const el of nodes) {
+          const txt = (el.textContent || '').trim();
+          const m = txt.match(/(?:P|分P)?\s*(\d+)/);
+          if (m && parseInt(m[1], 10) === next) {
+            el.click();
+            console.log('[BiliPlaylist] 已点击分P ' + next);
+            return true;
+          }
+        }
+      } catch (e) { /* 忽略 */ }
+    }
+    console.warn('[BiliPlaylist] 未找到分P列表项，回退整页跳转 p=' + next + '（选集选择器待实测）');
+    return false;
+  }
+
   // 分P总数：优先用顶层写入的 currentVideo.pages（加入列表后打开视频时经 view 接口获得，可靠）；
   // 兜底读播放器分P列表 DOM（选择器待实测，见 docs/api-notes.md）；都拿不到返回 null
   async function getTotalParts() {
@@ -194,6 +232,7 @@ var BiliPlayer = (function () {
       '.list-box .list-item',
       '.video-parts-list .list-item',
       '[class*="part-list"] [class*="item"]',
+      '[class*="parts"] [class*="item"]',
       '[class*="list-box"] [class*="item"]'
     ];
     for (const sel of candidates) {

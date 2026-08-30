@@ -25,6 +25,15 @@
   console.log('[BiliPlaylist] top frame 已注入 v' + chrome.runtime.getManifest().version + ' | ' + location.href);
   initTopLogic();
 
+  // 播放器已内嵌主页面（实测 2025：页面无播放器 iframe）：顶层 frame 直接适配 video
+  if (host === 'www.bilibili.com' && /^\/video\//.test(location.pathname)) {
+    try {
+      BiliPlayer.init();
+    } catch (e) {
+      console.error('[BiliPlaylist] player 初始化失败', e);
+    }
+  }
+
   // 诊断：3 秒后列出页面所有 iframe 地址（用于确认播放器 iframe 所在域名）
   setTimeout(() => {
     try {

@@ -171,9 +171,9 @@ v0.1（无构建）：
 ## 8. 已知坑与风险
 
 1. **B 站前端频繁改版**：播放器 DOM、页面布局、接口签名可能随时变化。选择器与接口结论必须记录验证日期，改版后优先怀疑此处。
-2. **播放器是跨域 iframe + 需要播放器适配层**：B 站视频页播放器位于 iframe（`player.bilibili.com/player.html`）。content script 通过 manifest `all_frames: true` + matches 直接注入该 frame（扩展可在跨域 frame 运行），**iframe 实例直接操作 video DOM**（读取分P/时间、监听 `timeupdate`/`ended`、切换分P），无需同源访问。
-   - **分P内连播（已实现）**：iframe 实例监听 `video.ended` → 无刷新切换下一分P：**iframe 自身刷新 `?p=N+1`**（只刷新播放器 iframe，顶层页面不刷新，即"不刷新模式"）；分P总数优先读播放器分P列表 DOM（选择器待实测），读不到时直接按"已播完"处理。全部分P播完 → iframe 发 `video-completed` 消息 → background 转发 → 顶层 `location` 跳转列表下一个视频（URL 携带 `?p=1&playerMode=`）。
-   - **跨 frame 通信**：iframe 实例用 `chrome.runtime.sendMessage` 或写 `chrome.storage` 触发 `onChanged`，顶层实例据此更新侧边栏进度显示。
+2. **播放器已内嵌主页面（2025 实测修正，非 iframe）**：B 站视频页播放器直接渲染在**顶层页面 DOM** 中（实测页面 iframe 列表仅剩 `s1.hdslb.com` 工具 iframe，无 `player.bilibili.com`）。播放器适配层**在顶层 frame 直接操作 video 元素**（读取分P/时间、监听 `timeupdate`/`ended`、切换分P），无需跨 frame；原 iframe 分支保留为兼容。
+   - **分P内连播（已实现）**：监听 `video.ended` → 无刷新切换下一分P：**优先点击页面分P列表（选集）中下一分P**（选择器待实测），失败回退整页 `?p=N+1`；分P总数优先读 `currentVideo.pages`（打开视频时 view 接口补全），兜底读分P列表 DOM。全部分P播完 → 发 `video-completed` → 顶层跳转列表下一个视频（URL 携带 `?p=1&playerMode=`）。
+   - **跨 frame 通信**（仅旧版 iframe 播放器场景）：iframe 实例用 `chrome.runtime.sendMessage` 或写 `chrome.storage` 触发 `onChanged`，顶层实例据此更新侧边栏进度显示。
 3. **注入范围控制**：content_scripts 用 `matches` + `all_frames: true` 精确控制注入域；**UI 只在顶层 frame 挂载**（`window === window.top`），iframe 实例只跑播放器适配层，避免重复挂面板。
 4. **"改了没生效"排查**：顺序 = 扩展"重新加载" → 页面刷新 → console 看报错（§5）。
 5. **跨子域数据**：`chrome.storage.local` 已解决共享问题（§6.5）；manifest matches 需覆盖 `https://www.bilibili.com/*`、`https://space.bilibili.com/*`、`https://player.bilibili.com/*`、`https://t.bilibili.com/*`。
