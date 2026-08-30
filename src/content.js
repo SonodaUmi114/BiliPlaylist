@@ -6,13 +6,12 @@
   const host = location.hostname;
 
   if (!isTop) {
-    // 播放器 iframe：player.bilibili.com 或站内其他子域（含 <video> 的 iframe）
-    if (host === 'player.bilibili.com' || document.querySelector('video')) {
-      try {
-        BiliPlayer.init();
-      } catch (e) {
-        console.error('[BiliPlaylist] player 初始化失败', e);
-      }
+    // 播放器可能位于任意子 frame（不限于 player.bilibili.com）；
+    // 一律尝试启动适配层，由 BiliPlayer 自行轮询查找 video（找不到 30s 后放弃）
+    try {
+      BiliPlayer.init();
+    } catch (e) {
+      console.error('[BiliPlaylist] player 初始化失败', e);
     }
     return;
   }
@@ -25,6 +24,17 @@
   }
   console.log('[BiliPlaylist] top frame 已注入 v' + chrome.runtime.getManifest().version + ' | ' + location.href);
   initTopLogic();
+
+  // 诊断：3 秒后列出页面所有 iframe 地址（用于确认播放器 iframe 所在域名）
+  setTimeout(() => {
+    try {
+      const srcs = Array.from(document.querySelectorAll('iframe')).map((f) => {
+        const s = f.getAttribute('src') || f.src || '(无 src)';
+        return f.id ? (f.id + '=' + s) : s;
+      });
+      console.log('[BiliPlaylist] 页面 iframe 列表:', srcs);
+    } catch (e) { /* 忽略 */ }
+  }, 3000);
 })();
 
 function initTopLogic() {
