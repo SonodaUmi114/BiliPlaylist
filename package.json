@@ -1,6 +1,6 @@
 {
   "name": "biliplaylist",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "B站播放列表增强工具（Chrome 扩展 MV3）",
   "scripts": {

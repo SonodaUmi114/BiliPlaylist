@@ -15,7 +15,7 @@
 
 ### 1.2 UP 主投稿 / 空间搜索 `GET /x/space/wbi/arc/search`
 - 参数：`mid`（必须）、`keyword`（搜索时）、`pn`、`ps`
-- 用途：v0.1 未使用（空间页多选直接读 DOM），预留
+- 用途：v1.0 未使用（空间页多选直接读 DOM），预留
 - 是否强制 WBI：✅ 路径带 `wbi`，强制签名（已按公开算法实现 `api.js` 的 `wbiSign`）
 - 密钥获取：`GET /x/web-interface/nav` → `data.wbi_img.{img_url,sub_url}` 文件名去掉扩展名即密钥
 - 状态：⚠️ 算法已实现，接口本身待实测
@@ -31,7 +31,7 @@
 - 需登录（未登录返回 -101）；仅取 `history.business === 'archive'` 的视频条目
 - **断点（2025 最终方案）**：**B 站播放器自身恢复"上次看到"**（官方最新，播放器显示该文案），插件**不主动 seek**（避免用旧值覆盖播放器正确恢复）；插件只**捕获保存**：① 页面加载 5s 后读取播放器实际位置（含 B 站恢复后的值）② 关闭标签页/切走时保存一次精确位置 ③ **打开视频页/空间页自动同步官方历史（节流 1 分钟一次，静默）** ④ 全局刷新按钮手动同步（≤5 页，播放列表内视频都找到即提前结束）。仅当 B 站未恢复（5s 后仍在开头）时插件本地兜底 seek。只保存播放列表内视频 → `biliplaylist:progress` + `biliplaylist:history`（本地永久备份）
 - ⚠️ 待实测：`__INITIAL_STATE__.progress` 是否存在于当前页面（若不存在需换方案）；`cursor.max` 翻页语义
-- 旧 video 元素轮询方案已停用，备份于分支 `backup/old-progress-video-element`
+- 旧 video 元素轮询方案已停用（代码留存于 git 历史）
 
 ---
 
@@ -54,7 +54,7 @@
 - 分P连播：优先点击页面分P列表（选集）下一分P（选择器候选见 `player.js clickNextPart`，待实测），兜底整页 `?p=N+1`
 - 分P总数来源（优先级）：① 顶层写入的 `biliplaylist:currentVideo.pages`（打开视频时若列表项缺分P数则调 view 接口补全并缓存）② 分P列表 DOM（待实测）③ null（按已播完处理）
 - 原 `player.bilibili.com` iframe 方案保留为兼容分支（manifest matches 仍含该域）
-- **进度记忆（断点，2025 切换官方方案）**：断点来源为**官方观看历史接口**（§1.4），同步进 `biliplaylist:progress`；打开视频时 seek 恢复（看过 5 秒以上即恢复，留 10s 尾）；旧 video 元素轮询保存已停用（备份分支 `backup/old-progress-video-element`）
+- **进度记忆（断点，2025 切换官方方案）**：断点来源为**官方观看历史接口**（§1.4），同步进 `biliplaylist:progress`；打开视频时 seek 恢复（看过 5 秒以上即恢复，留 10s 尾）；旧 video 元素轮询保存已停用（代码留存于 git 历史）
 - "网页全屏"自动恢复（已实现，尽力而为）：跳转 URL 携带 `playerMode=web-fullscreen` → 顶层写 `biliplaylist:pendingWebFs` 标记 → iframe 加载后尝试点击网页全屏按钮（候选选择器见 `player.js pickWebFullscreenButton`）；未命中会打印 warn 日志，把实际 DOM 记录到本文件
 
 ### 2.4 右下角热区按钮簇（我们的 UI）

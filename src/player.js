@@ -7,7 +7,7 @@
 var BiliPlayer = (function () {
   // 断点方案（2025）：B 站播放器自身恢复"上次看到"（官方最新），插件**不再主动 seek**（避免打架）；
   // 插件只做捕获保存（页面加载 5s 后读播放器实际位置 + 关闭时保存一次），B 站未恢复时才本地兜底。
-  // 旧的 video 元素"轮询"保存仍停用；备份在分支 backup/old-progress-video-element
+  // 旧的 video 元素"轮询"保存仍停用（代码留存于 git 历史）
   const USE_OFFICIAL_PROGRESS = true; // true = 关闭轮询，只保留关闭时一次保存
   const DO_NOT_SEEK = true;           // 不再主动 seek（B 站播放器自己恢复为准）
 
