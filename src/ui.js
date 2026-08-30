@@ -197,6 +197,10 @@ var BiliUI = (function () {
     renderList();
     initStorageSync();
     initSpaWatcher();
+    // 自动同步官方历史（节流 1 分钟一次，视频页/空间页；≤5 页且播放列表内视频都找到即提前结束）
+    if (isVideoPage || isSpacePage) {
+      setTimeout(() => maybeAutoSyncHistory(), 3000);
+    }
   }
 
   // ---------- Shadow DOM 骨架 ----------
@@ -550,10 +554,19 @@ var BiliUI = (function () {
     t._t = setTimeout(() => t.classList.remove('show'), 2600);
   }
 
-  // ---------- 官方观看历史同步（合并进刷新按钮；只保存播放列表内视频，本地永久保留） ----------
+  // ---------- 官方观看历史同步（自动 + 刷新按钮触发；只保存播放列表内视频，本地永久保留） ----------
   // 说明：断点来源 = ① 打开视频时 B 站播放器自身恢复"上次看到"（插件不干预）② 页面加载 5s 后捕获播放器实际位置
-  //       ③ 关闭页面时保存一次 ④ 此同步做小量历史翻页补充（≤5 页，播放列表内视频都找到即提前结束）
+  //       ③ 关闭页面时保存一次 ④ 自动同步/刷新按钮做小量历史翻页补充（≤5 页，播放列表内视频都找到即提前结束）
   let historySyncing = false;
+  let lastAutoSync = 0;
+
+  // 自动同步（节流：1 分钟一次，静默）
+  function maybeAutoSyncHistory() {
+    const now = Date.now();
+    if (now - lastAutoSync < 60000) return;
+    lastAutoSync = now;
+    syncHistory({ pages: 5, silent: true });
+  }
   async function syncHistory(opts) {
     opts = opts || {};
     if (historySyncing) return;
@@ -563,6 +576,10 @@ var BiliUI = (function () {
     try {
       const list = await BiliStorage.getList();
       const bvids = new Set(list.map((it) => it.bvid));
+      if (!bvids.size) {
+        if (!opts.silent) showToast('播放列表为空，无需同步');
+        return;
+      }
       const found = new Set();
       let fetched = 0;
       let updated = 0;
