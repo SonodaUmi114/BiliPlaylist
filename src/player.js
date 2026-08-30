@@ -5,9 +5,9 @@
 'use strict';
 
 var BiliPlayer = (function () {
-  // 断点方案（2025 切换）：以 B 站官方观看历史接口为准（同步进 biliplaylist:progress）；
-  // 旧的 video 元素轮询保存已停用，备份在分支 backup/old-progress-video-element
-  const USE_OFFICIAL_PROGRESS = true;
+  // 断点方案（2025）：官方历史为准，但关闭页面时本地保存一次精确进度兜底（解决官方上报滞后）。
+  // 旧的 video 元素"轮询"保存仍停用；备份在分支 backup/old-progress-video-element
+  const USE_OFFICIAL_PROGRESS = true; // true = 关闭轮询，只保留关闭时一次保存
 
   let bvid = null;
   let part = 1;
@@ -73,11 +73,27 @@ var BiliPlayer = (function () {
     if (!USE_OFFICIAL_PROGRESS) {
       // 旧方案（已停用）：video 元素轮询保存断点
       video.addEventListener('timeupdate', onTimeUpdate);
-      window.addEventListener('pagehide', () => saveProgress());
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden') saveProgress();
-      });
     }
+    // 关闭标签页/切走时保存一次精确进度（官方上报可能滞后，本地兜底保证"打开总是最新"）
+    window.addEventListener('pagehide', () => saveLocalProgress());
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') saveLocalProgress();
+    });
+  }
+
+  // 关闭/切走时保存一次精确位置（不轮询；时间不小于本地已有值才覆盖）
+  async function saveLocalProgress() {
+    if (!video || !bvid) return;
+    try {
+      const time = Math.floor(video.currentTime || 0);
+      if (!(time > 5)) return;
+      const progress = await BiliStorage.getProgress();
+      const prev = progress[bvid] || {};
+      if (time >= (prev.time || 0) || !(prev.updatedAt || 0)) {
+        progress[bvid] = { part, time, updatedAt: Date.now(), source: 'local' };
+        await BiliStorage.saveProgress(progress);
+      }
+    } catch (e) { /* 忽略 */ }
   }
 
   // —— "网页全屏"自动恢复：消费顶层写入的 pendingWebFs 标记，尝试点击播放器网页全屏按钮 ——
@@ -257,7 +273,7 @@ var BiliPlayer = (function () {
     BiliStorage.setPlayerMode(fs ? 'fullscreen' : 'default');
   }
 
-  // 应用官方历史同步来的断点（同步完成后调用；仅当保存值明显超前当前播放位置时 seek，避免覆盖用户手动位置）
+  // 应用官方历史同步来的断点（同步/捕获完成后调用；仅当保存值明显超前当前播放位置时 seek，避免覆盖用户手动位置）
   async function applySavedProgress() {
     if (!video || !bvid) return;
     try {
@@ -267,7 +283,7 @@ var BiliPlayer = (function () {
       const cur = video.currentTime || 0;
       if (p.time - cur > 10 && video.duration > 10 && p.time < video.duration - 10) {
         video.currentTime = p.time;
-        console.log('[BiliPlaylist] 官方历史断点已应用 ' + p.time + 's');
+        console.log('[BiliPlaylist] 官方/本地断点已应用 ' + p.time + 's');
       }
     } catch (e) { /* 忽略 */ }
   }
