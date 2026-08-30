@@ -48,9 +48,15 @@
 - 分P总数来源（优先级）：① 顶层写入的 `biliplaylist:currentVideo.pages`（打开视频时若列表项缺分P数则调 view 接口补全并缓存）② 播放器分P列表 DOM（待实测）③ null（按已播完处理）
 - "网页全屏"自动恢复（已实现，尽力而为）：跳转 URL 携带 `playerMode=web-fullscreen` → 顶层写 `biliplaylist:pendingWebFs` 标记 → iframe 加载后尝试点击网页全屏按钮（候选选择器见 `player.js pickWebFullscreenButton`）；未命中会打印 warn 日志，把实际 DOM 记录到本文件
 
-### 2.4 视频页右下角
-- 我们自己的悬浮按钮固定在 `right:24px / bottom:150px`，加入按钮 `bottom:205px`
+### 2.4 右下角热区按钮簇（我们的 UI）
+- 热区：右下角 120px；按钮位于热区中心（距边约 60px）：侧边栏按钮（☰，44px 圆形）`right:60px / bottom:60px`，页面按钮（视频页「＋ 加入列表」/ 空间页「多选」）在其左侧平行 `right:112px / bottom:60px`
 - B 站右下角自带控件（回到顶部/小窗播放）位置：⚠️ 待实测是否冲突
+- 多选按钮点击后出现顶部工具栏（`top:80px / right:24px`）与卡片复选框
+
+### 2.5 空间页多选（opt-in）
+- 默认关闭；热区「多选」开启后：卡片复选框插在日期元素之后（日期行最右端），待实测
+- UP 主名提取：`.h-name` / `[class*="nickname"]` 等头部选择器 → 兜底 `document.title` 正则（"xxx的个人空间"），待实测
+- 卡片收集：`a[href*="/video/BV"]` 向上找 `.bili-video-card`（避免嵌套链接重复勾选），待实测
 
 ---
 
@@ -70,4 +76,4 @@
 
 - 2023-03 起 B 站 web 端部分接口强制 WBI 签名（`w_rid` + `wts`）
 - `requestFullscreen` 必须用户手势触发（transient user activation）——这是选型 Chrome 扩展的核心原因
-- `chrome.windows.update({state:'fullscreen'})` 需要 `"fullscreen"` 权限，且无需用户手势
+- `chrome.windows.update({state:'fullscreen'})` 无需额外权限（`"fullscreen"` 权限是 Chrome App 专用，扩展声明会被忽略并打 warning：`'app.window.fullscreen' is only allowed for packaged apps`），且无需用户手势

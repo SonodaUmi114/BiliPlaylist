@@ -1,15 +1,19 @@
 // BiliPlaylist UI 层
-// 侧边栏 / 右下角热区悬浮按钮 / 视频页加入按钮 / 空间页多选
-// 所有 UI 用 Shadow DOM 隔离（白灰简约、B站风格）；空间页卡片勾选框需注入页面 DOM，
-// 其样式通过独立 <style id="biliplaylist-page-css"> 前缀类注入（最小污染）
+// 侧边栏 / 右下角热区按钮簇（侧边栏 + 视频页"加入列表" / 空间页"多选"）/ 空间页多选
+// 所有 UI 用 Shadow DOM 隔离（白灰简约、B站风格）；空间页卡片多选框注入页面 DOM，
+// 样式通过独立 <style id="biliplaylist-page-css"> 前缀类注入（最小污染）
 'use strict';
 
 var BiliUI = (function () {
-  const HOTZONE = 120;            // 右下角热区半径（px）
-  const FAB_HIDE_DELAY = 1200;    // 移出热区后延迟隐藏（ms）
+  const HOTZONE = 120;          // 右下角热区半径（px）
+  const FAB_HIDE_DELAY = 1200;  // 移出热区后延迟隐藏（ms）
+  const HOT_CENTER = 60;        // 热区中心距边距 = HOTZONE/2
+  const FAB_SIZE = 44;          // 侧边栏按钮直径
+  const BTN_GAP = 8;            // 按钮间距
+  const SIDE_BTN_RIGHT = HOT_CENTER + FAB_SIZE + BTN_GAP; // 页面按钮在侧边栏按钮左侧平行
 
-  let host = null;                // shadow host
-  let root = null;                // shadow root
+  let host = null;              // shadow host
+  let root = null;              // shadow root
   let fab = null;
   let panel = null;
   let listEl = null;
@@ -22,24 +26,38 @@ var BiliUI = (function () {
   let currentBvid = null;
   let isVideoPage = false;
   let isSpacePage = false;
+  const clusterBtns = [];       // 热区按钮簇（fab + 页面相关按钮）
 
   // 空间页多选状态
-  const sel = { map: new Map(), bar: null, countEl: null, observer: null };
+  const sel = { mode: false, map: new Map(), bar: null, button: null, countEl: null, observer: null };
 
   const SHADOW_CSS = `
     :host { all: initial; }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
     .fab {
-      position: fixed; right: 24px; bottom: 150px; z-index: 2147483646;
-      width: 44px; height: 44px; border-radius: 50%;
+      position: fixed; right: ${HOT_CENTER}px; bottom: ${HOT_CENTER}px; z-index: 2147483646;
+      width: ${FAB_SIZE}px; height: ${FAB_SIZE}px; border-radius: 50%;
       background: #ffffff; color: #61666d;
       border: 1px solid #e3e5e7; box-shadow: 0 2px 8px rgba(0,0,0,.12);
       font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center;
       transition: opacity .2s, transform .2s;
       opacity: 0; transform: translateY(8px); pointer-events: none;
     }
-    .fab.show { opacity: 1; transform: none; pointer-events: auto; }
+    .side-btn {
+      position: fixed; right: ${SIDE_BTN_RIGHT}px; bottom: ${HOT_CENTER}px; z-index: 2147483646;
+      border: 1px solid #e3e5e7; background: #ffffff; color: #18191c;
+      font-size: 13px; padding: 10px 14px; border-radius: 22px; cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,.12); white-space: nowrap;
+      display: flex; align-items: center; justify-content: center;
+      transition: opacity .2s, transform .2s;
+      opacity: 0; transform: translateY(8px); pointer-events: none;
+    }
+    .fab.show, .side-btn.show { opacity: 1; transform: none; pointer-events: auto; }
     .fab:hover { background: #f5f6f7; }
+    .side-btn:hover { background: #f5f6f7; }
+    .side-btn.on { background: #00aeec; border-color: #00aeec; color: #fff; }
+    .side-btn.on:hover { background: #00b3f0; }
+    .side-btn.flash { background: #eef7fd; border-color: #00aeec; }
     .panel {
       position: fixed; top: 0; right: 0; bottom: 0; width: 340px; z-index: 2147483647;
       background: #ffffff; border-left: 1px solid #e3e5e7;
@@ -60,8 +78,10 @@ var BiliUI = (function () {
       font-size: 11px; padding: 2px 8px; border-radius: 10px; cursor: pointer; white-space: nowrap;
     }
     .modes button.on { background: #00aeec; border-color: #00aeec; color: #fff; }
-    .close { border: none; background: none; color: #9499a0; font-size: 16px; cursor: pointer; padding: 2px 6px; }
-    .close:hover { color: #18191c; }
+    .refresh-all, .close {
+      border: none; background: none; color: #9499a0; font-size: 15px; cursor: pointer; padding: 2px 6px;
+    }
+    .refresh-all:hover, .close:hover { color: #18191c; }
     .list { flex: 1; overflow-y: auto; padding: 8px; list-style: none; }
     .item {
       display: flex; gap: 8px; padding: 10px; border-radius: 8px; cursor: grab;
@@ -72,23 +92,16 @@ var BiliUI = (function () {
     .item.current .title { color: #00aeec; }
     .item-main { flex: 1; min-width: 0; }
     .title { font-size: 13px; color: #18191c; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-all; }
+    .author { font-size: 12px; color: #9499a0; margin-top: 2px; }
     .meta { font-size: 12px; color: #9499a0; margin-top: 4px; }
     .meta .done { color: #00aeec; font-weight: 600; }
-    .actions { display: flex; flex-direction: column; gap: 4px; }
+    .actions { display: flex; flex-direction: column; }
     .actions button {
       width: 24px; height: 24px; border: 1px solid #e3e5e7; background: #fff; color: #61666d;
       border-radius: 6px; cursor: pointer; font-size: 13px; line-height: 1;
     }
     .actions button:hover { background: #f1f2f3; }
     .empty { padding: 40px 16px; text-align: center; color: #9499a0; font-size: 13px; line-height: 1.8; }
-    .add-btn {
-      position: fixed; right: 24px; bottom: 205px; z-index: 2147483646;
-      border: 1px solid #e3e5e7; background: #ffffff; color: #18191c;
-      font-size: 13px; padding: 7px 12px; border-radius: 16px; cursor: pointer;
-      box-shadow: 0 2px 8px rgba(0,0,0,.12);
-    }
-    .add-btn:hover { background: #f5f6f7; }
-    .add-btn.flash { background: #eef7fd; border-color: #00aeec; }
     .sel-bar {
       position: fixed; top: 80px; right: 24px; z-index: 2147483646;
       background: #ffffff; border: 1px solid #e3e5e7; border-radius: 12px;
@@ -105,7 +118,7 @@ var BiliUI = (function () {
     .sel-bar button.primary:hover { background: #00b3f0; }
   `;
 
-  // 空间页卡片勾选框样式（注入页面 DOM 的样式表，前缀类名避免冲突）
+  // 空间页卡片勾选框样式（注入页面 DOM，前缀类名避免冲突）
   const PAGE_CSS = `
     .biliplaylist-card { position: relative !important; }
     .biliplaylist-card.biliplaylist-selected::after {
@@ -113,11 +126,10 @@ var BiliUI = (function () {
       border: 2px solid #00aeec; border-radius: 6px; pointer-events: none; box-sizing: border-box;
     }
     .biliplaylist-check {
-      position: absolute; top: 8px; left: 8px; z-index: 9;
-      width: 18px; height: 18px; border-radius: 4px;
+      display: inline-block; width: 16px; height: 16px; border-radius: 4px;
       border: 2px solid #9499a0; background: #ffffff;
-      cursor: pointer; display: flex; align-items: center; justify-content: center;
-      font-size: 12px; color: #fff; line-height: 1; user-select: none;
+      cursor: pointer; font-size: 11px; color: #fff; line-height: 1;
+      text-align: center; vertical-align: middle; margin-left: 8px; user-select: none;
     }
     .biliplaylist-check.on { background: #00aeec; border-color: #00aeec; }
   `;
@@ -157,7 +169,7 @@ var BiliUI = (function () {
     initFab();
     initModes();
     if (isVideoPage) initAddButton();
-    if (isSpacePage) initSpaceSelect();
+    if (isSpacePage) initSelButton();
     renderList();
     initStorageSync();
   }
@@ -180,6 +192,7 @@ var BiliUI = (function () {
             <button data-mode="web-fullscreen">网页全屏</button>
             <button data-mode="fullscreen">全屏</button>
           </div>
+          <button class="refresh-all" id="refreshAll" title="刷新列表（重新同步列表与进度）">↻</button>
           <button class="close" id="close" title="关闭">✕</button>
         </header>
         <ul class="list" id="list"></ul>
@@ -187,9 +200,11 @@ var BiliUI = (function () {
     `;
     document.documentElement.appendChild(host);
     fab = root.querySelector('#fab');
+    clusterBtns.push(fab);
     panel = root.querySelector('#panel');
     listEl = root.querySelector('#list');
     countEl = root.querySelector('#count');
+    root.querySelector('#refreshAll').addEventListener('click', () => renderList());
     root.querySelector('#close').addEventListener('click', () => togglePanel(false));
     // 页面级样式（空间页卡片勾选框用）
     if (!document.getElementById('biliplaylist-page-css')) {
@@ -200,7 +215,13 @@ var BiliUI = (function () {
     }
   }
 
-  // ---------- 悬浮按钮 + 热区 ----------
+  // ---------- 热区按钮簇 ----------
+  function showCluster(show) {
+    for (const b of clusterBtns) {
+      if (b) b.classList.toggle('show', show);
+    }
+  }
+
   function initFab() {
     fab.addEventListener('click', () => togglePanel());
     document.addEventListener('mousemove', onMouseMove);
@@ -211,10 +232,10 @@ var BiliUI = (function () {
                  (window.innerHeight - e.clientY) < HOTZONE;
     clearTimeout(hideTimer);
     if (near) {
-      fab.classList.add('show');
+      showCluster(true);
     } else {
       hideTimer = setTimeout(() => {
-        if (!open) fab.classList.remove('show');
+        if (!open) showCluster(false);
       }, FAB_HIDE_DELAY);
     }
   }
@@ -223,7 +244,7 @@ var BiliUI = (function () {
     open = force !== undefined ? force : !open;
     panel.classList.toggle('open', open);
     if (open) {
-      fab.classList.add('show');
+      showCluster(true);
       renderList();
     }
   }
@@ -254,7 +275,7 @@ var BiliUI = (function () {
     const progress = await BiliStorage.getProgress();
     countEl.textContent = items.length ? items.length + ' 个' : '';
     if (!items.length) {
-      listEl.innerHTML = '<div class="empty">播放列表为空<br>在 UP 主空间多选视频批量加入，<br>或在视频页点击「＋ 加入播放列表」</div>';
+      listEl.innerHTML = '<div class="empty">播放列表为空<br>视频页右下角点「＋ 加入列表」，<br>或在 UP 主空间右下角点「多选」批量加入</div>';
       return;
     }
     listEl.innerHTML = '';
@@ -272,21 +293,17 @@ var BiliUI = (function () {
       li.innerHTML =
         '<div class="item-main">' +
           '<div class="title">' + escapeHtml(it.title || it.bvid) + '</div>' +
-          '<div class="meta">分P ' + part + '/' + pages + ' · ' + fmtTime(time) +
+          (it.author ? '<div class="author">' + escapeHtml(it.author) + '</div>' : '') +
+          '<div class="meta">' + part + '/' + pages + ' · ' + fmtTime(time) +
             (done ? ' · <span class="done">✓ 已看完</span>' : '') +
           '</div>' +
         '</div>' +
         '<div class="actions">' +
-          '<button class="refresh" title="刷新（重新同步列表与进度）">↻</button>' +
           '<button class="del" title="删除">✕</button>' +
         '</div>';
       li.addEventListener('click', (e) => {
         if (e.target.closest('button')) return;
         jumpToVideo(it.bvid);
-      });
-      li.querySelector('.refresh').addEventListener('click', async (e) => {
-        e.stopPropagation();
-        await renderList();
       });
       li.querySelector('.del').addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -357,53 +374,82 @@ var BiliUI = (function () {
       '?p=1&fromPlaylist=1&playerMode=' + modeState;
   }
 
-  // ---------- 视频页「加入播放列表」按钮 ----------
+  // ---------- 视频页「加入播放列表」按钮（热区按钮簇成员） ----------
   function initAddButton() {
     const btn = document.createElement('button');
-    btn.className = 'add-btn';
-    btn.textContent = '＋ 加入播放列表';
-    btn.addEventListener('click', async () => {
-      if (!currentBvid) {
-        console.warn('[BiliPlaylist] 未找到当前视频 bvid');
-        return;
-      }
-      let item = { bvid: currentBvid, title: '', pubdate: 0, pages: null };
-      try {
-        const v = await BiliApi.fetchView(currentBvid);
-        item.title = v.data.title;
-        item.pubdate = v.data.pubdate || 0;
-        item.pages = (v.data.pages || []).length || null;
-      } catch (e) {
-        console.warn('[BiliPlaylist] 获取视频信息失败，退回页面标题', e);
-        item.title = document.title.replace(/_[^_]*$/, '').trim();
-      }
-      await addItems([item]);
-      flashButton(btn);
-    });
+    btn.className = 'side-btn add-btn';
+    btn.textContent = '＋ 加入列表';
+    btn.title = '把当前视频加入播放列表';
+    btn.addEventListener('click', onAddCurrentVideo);
     root.appendChild(btn);
+    clusterBtns.push(btn);
   }
 
-  function flashButton(btn) {
+  async function onAddCurrentVideo() {
+    if (!currentBvid) {
+      console.warn('[BiliPlaylist] 未找到当前视频 bvid');
+      return;
+    }
+    let item = { bvid: currentBvid, title: '', author: '', pubdate: 0, pages: null };
+    try {
+      const v = await BiliApi.fetchView(currentBvid);
+      item.title = v.data.title;
+      item.pubdate = v.data.pubdate || 0;
+      item.pages = (v.data.pages || []).length || null;
+      item.author = v.data.owner ? v.data.owner.name : '';
+    } catch (e) {
+      console.warn('[BiliPlaylist] 获取视频信息失败，退回页面标题', e);
+      item.title = document.title.replace(/_[^_]*$/, '').trim();
+    }
+    await addItems([item]);
+    flashAddButton();
+  }
+
+  function flashAddButton() {
+    const btn = root.querySelector('.add-btn');
+    if (!btn) return;
     btn.textContent = '已加入 ✓';
     btn.classList.add('flash');
     setTimeout(() => {
-      btn.textContent = '＋ 加入播放列表';
+      btn.textContent = '＋ 加入列表';
       btn.classList.remove('flash');
     }, 1200);
   }
 
-  // ---------- 空间页多选 ----------
-  function initSpaceSelect() {
-    ensureSelBar();
-    attachToCards();
-    sel.observer = new MutationObserver(() => attachToCards());
-    sel.observer.observe(document.body, { childList: true, subtree: true });
+  // ---------- 空间页多选（默认关闭，热区「多选」按钮开启） ----------
+  function initSelButton() {
+    const btn = document.createElement('button');
+    btn.className = 'side-btn sel-btn';
+    btn.textContent = '多选';
+    btn.title = '开启/关闭多选模式';
+    btn.addEventListener('click', toggleMultiSelect);
+    root.appendChild(btn);
+    clusterBtns.push(btn);
+    sel.button = btn;
+  }
+
+  function toggleMultiSelect() {
+    sel.mode = !sel.mode;
+    if (sel.button) sel.button.classList.toggle('on', sel.mode);
+    if (sel.mode) {
+      ensureSelBar();
+      if (sel.bar) sel.bar.style.display = '';
+      attachToCards();
+      if (!sel.observer) {
+        sel.observer = new MutationObserver(() => attachToCards());
+        sel.observer.observe(document.body, { childList: true, subtree: true });
+      }
+    } else {
+      detachCheckboxes();
+      if (sel.observer) { sel.observer.disconnect(); sel.observer = null; }
+    }
   }
 
   function ensureSelBar() {
     if (sel.bar) return;
     const bar = document.createElement('div');
     bar.className = 'sel-bar';
+    bar.style.display = 'none';
     bar.innerHTML =
       '<span>已选 <b class="count">0</b> 个</span>' +
       '<button class="primary" id="addSel">加入播放列表</button>' +
@@ -415,37 +461,72 @@ var BiliUI = (function () {
     bar.querySelector('#clearSel').addEventListener('click', clearSelection);
   }
 
-  function getCardAnchors() {
-    return Array.from(document.querySelectorAll('a[href*="/video/BV"]'))
-      .filter((a) => !a.closest('#biliplaylist-root') && !a.dataset.biliplaylistSel);
+  // 收集页面视频卡片（外层卡片优先，避免嵌套链接重复勾选）
+  function getCards() {
+    const seen = new Set();
+    const cards = [];
+    for (const a of document.querySelectorAll('a[href*="/video/BV"]')) {
+      if (a.closest('#biliplaylist-root') || a.closest('[data-biliplaylist-sel]')) continue;
+      const card = a.closest('.bili-video-card') || a;
+      if (seen.has(card)) continue;
+      seen.add(card);
+      cards.push(card);
+    }
+    return cards;
   }
 
   function attachToCards() {
-    for (const a of getCardAnchors()) {
-      a.dataset.biliplaylistSel = '1';
-      a.classList.add('biliplaylist-card');
-      const box = document.createElement('span');
-      box.className = 'biliplaylist-check';
-      box.textContent = '✓';
-      box.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        toggleSelect(a, box);
-      });
-      a.appendChild(box);
-      sel.map.set(a, box);
+    if (!sel.mode) return;
+    for (const card of getCards()) {
+      if (card.dataset.biliplaylistSel) continue;
+      card.dataset.biliplaylistSel = '1';
+      card.classList.add('biliplaylist-card');
+      const box = makeCheckbox(card);
+      sel.map.set(card, box);
     }
   }
 
-  function toggleSelect(a, box) {
-    const on = a.classList.toggle('biliplaylist-selected');
+  // 复选框放在视频名称下方"日期那一行"的最右端（插在日期元素之后）
+  function makeCheckbox(card) {
+    const box = document.createElement('span');
+    box.className = 'biliplaylist-check';
+    box.textContent = '✓';
+    box.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleSelect(card, box);
+    });
+    let dateEl = null;
+    try {
+      dateEl = card.querySelector('.bili-video-card__info--date, .date, [class*="date"]');
+    } catch (e) { /* 忽略 */ }
+    if (dateEl && dateEl.parentNode) {
+      dateEl.after(box);
+    } else {
+      card.appendChild(box);
+    }
+    return box;
+  }
+
+  function detachCheckboxes() {
+    for (const [card, box] of sel.map) {
+      card.classList.remove('biliplaylist-selected', 'biliplaylist-card');
+      if (box.parentNode) box.parentNode.removeChild(box);
+    }
+    sel.map.clear();
+    if (sel.bar) sel.bar.style.display = 'none';
+    if (sel.countEl) sel.countEl.textContent = '0';
+  }
+
+  function toggleSelect(card, box) {
+    const on = card.classList.toggle('biliplaylist-selected');
     box.classList.toggle('on', on);
     updateSelCount();
   }
 
   function clearSelection() {
-    for (const [a, box] of sel.map) {
-      a.classList.remove('biliplaylist-selected');
+    for (const [card, box] of sel.map) {
+      card.classList.remove('biliplaylist-selected');
       box.classList.remove('on');
     }
     updateSelCount();
@@ -454,34 +535,54 @@ var BiliUI = (function () {
   function updateSelCount() {
     if (!sel.countEl) return;
     let n = 0;
-    for (const a of sel.map.keys()) {
-      if (a.classList.contains('biliplaylist-selected')) n++;
+    for (const card of sel.map.keys()) {
+      if (card.classList.contains('biliplaylist-selected')) n++;
     }
     sel.countEl.textContent = String(n);
   }
 
-  function extractCard(a) {
-    const m = (a.href || '').match(/\/video\/(BV\w+)/);
+  function extractCard(card) {
+    const href = card.href || ((card.querySelector('a[href*="/video/BV"]') || {}).href) || '';
+    const m = (href || '').match(/\/video\/(BV\w+)/);
     if (!m) return null;
     const bvid = m[1];
     let title = '';
-    const t = a.querySelector('.bili-video-card__info--tit, .title, [title]');
+    const t = card.querySelector('.bili-video-card__info--tit, .title, [title]');
     if (t) {
       title = (t.getAttribute('title') || t.textContent || '').trim();
     }
-    if (!title) title = (a.getAttribute('title') || '').trim();
+    if (!title) title = (card.getAttribute('title') || '').trim();
     let dateText = '';
-    const d = a.querySelector('.bili-video-card__info--date, .date, [class*="date"]');
+    const d = card.querySelector('.bili-video-card__info--date, .date, [class*="date"]');
     if (d) dateText = d.textContent.trim();
     return { bvid, title, pubdate: parsePubdate(dateText), pages: null };
   }
 
+  // UP 主名：优先读空间页头部，兜底 document.title（"xxx的个人空间"）
+  function getSpaceAuthor() {
+    const sels = ['.h-name', '[class*="nickname"]', '[class*="user-name"]', '#h-name', '.name'];
+    for (const s of sels) {
+      try {
+        const el = document.querySelector(s);
+        const t = el && el.textContent.trim();
+        if (t) return t;
+      } catch (e) { /* 忽略 */ }
+    }
+    const m = document.title.match(/^(.+?)的个人空间/);
+    if (m) return m[1].trim();
+    return '';
+  }
+
   async function addSelected() {
+    const author = getSpaceAuthor();
     const items = [];
-    for (const [a] of sel.map) {
-      if (!a.classList.contains('biliplaylist-selected')) continue;
-      const card = extractCard(a);
-      if (card) items.push(card);
+    for (const [card] of sel.map) {
+      if (!card.classList.contains('biliplaylist-selected')) continue;
+      const c = extractCard(card);
+      if (c) {
+        c.author = author;
+        items.push(c);
+      }
     }
     await addItems(items);
     clearSelection();

@@ -47,9 +47,10 @@ for (const d of ['www.bilibili.com', 'space.bilibili.com', 'player.bilibili.com'
 
 console.log('== 权限 ==');
 const perms = manifest.permissions || [];
-for (const p of ['storage', 'fullscreen', 'scripting']) {
+for (const p of ['storage', 'scripting']) {
   assert('权限包含 ' + p, perms.includes(p));
 }
+assert('不包含 fullscreen（Chrome App 专用权限，扩展声明会被忽略并打 warning）', !perms.includes('fullscreen'));
 const hp = manifest.host_permissions || [];
 for (const d of ['www.bilibili.com', 'space.bilibili.com', 'player.bilibili.com', 'api.bilibili.com']) {
   assert('host_permissions 覆盖 ' + d, hp.some((h) => h.includes(d)));

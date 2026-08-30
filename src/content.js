@@ -50,22 +50,23 @@ function initTopLogic() {
   });
 }
 
-// 顶层在视频页写入当前视频信息；列表项缺分P数时调用 view 接口补全（1 次/视频，之后缓存于列表）
+// 顶层在视频页写入当前视频信息；列表项缺分P数/UP主名时调用 view 接口补全（1 次/视频，之后缓存于列表）
 async function ensureCurrentVideoInfo(bvid) {
   try {
     const items = await BiliStorage.getList();
     const item = items.find((it) => it.bvid === bvid);
     let pages = item ? item.pages : null;
-    if (item && !pages) {
+    if (item && (!pages || !item.author)) {
       try {
         const v = await BiliApi.fetchView(bvid);
-        pages = (v.data && Array.isArray(v.data.pages) ? v.data.pages.length : 0) || null;
-        if (pages) {
-          item.pages = pages;
-          await BiliStorage.saveList(items);
-        }
+        const pCount = (v.data && Array.isArray(v.data.pages) ? v.data.pages.length : 0) || null;
+        const author = v.data && v.data.owner ? v.data.owner.name : '';
+        if (pCount && !item.pages) item.pages = pCount;
+        if (author && !item.author) item.author = author;
+        await BiliStorage.saveList(items);
+        pages = item.pages;
       } catch (e) {
-        console.warn('[BiliPlaylist] 获取分P数失败', e);
+        console.warn('[BiliPlaylist] 获取视频信息失败', e);
       }
     }
     await BiliStorage.saveCurrentVideo({ bvid, pages, updatedAt: Date.now() });
