@@ -167,8 +167,16 @@ var BiliUI = (function () {
   }
 
   function parsePubdate(text) {
-    const m = String(text || '').match(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+    const s = String(text || '');
+    // 兼容 2024-05-01 / 2024/05/01 / 2024.05.01（及带时间/后缀）
+    const m = s.match(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
     if (m) return Math.floor(Date.UTC(+m[1], +m[2] - 1, +m[3]) / 1000);
+    // 兼容 "MM-DD"（无年份）→ 视为当年
+    const m2 = s.match(/^(\d{1,2})[-/.](\d{1,2})$/);
+    if (m2) {
+      const now = new Date();
+      return Math.floor(Date.UTC(now.getUTCFullYear(), +m2[1] - 1, +m2[2]) / 1000);
+    }
     return 0;
   }
 
@@ -669,6 +677,39 @@ var BiliUI = (function () {
     sel.countEl.textContent = String(n);
   }
 
+  // —— 排序兜底：DOM 提取不到发布日期时，后台用 view 接口补全并重排（节流防风控） ——
+  async function backfillAndResort() {
+    try {
+      const list = await BiliStorage.getList();
+      const missing = list.filter((it) => it.bvid && !it.pubdate);
+      if (!missing.length) return;
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      let changed = false;
+      for (const it of missing) {
+        try {
+          const v = await BiliApi.fetchView(it.bvid);
+          const pd = v.data && v.data.pubdate;
+          if (pd) {
+            it.pubdate = pd;
+            changed = true;
+          }
+        } catch (e) { /* 单个失败继续 */ }
+        await sleep(200);
+      }
+      if (!changed) return;
+      const sorted = list.slice().sort((a, b) => {
+        const pa = a.pubdate || Number.MAX_SAFE_INTEGER;
+        const pb = b.pubdate || Number.MAX_SAFE_INTEGER;
+        return pa - pb;
+      });
+      await BiliStorage.saveList(sorted);
+      renderList();
+      console.log('[BiliPlaylist] 已按接口发布日期补全并重排');
+    } catch (e) {
+      console.warn('[BiliPlaylist] 补全发布日期失败', e);
+    }
+  }
+
   function extractCard(card) {
     const href = card.href || ((card.querySelector('a[href*="/video/BV"]') || {}).href) || '';
     const m = (href || '').match(/\/video\/(BV\w+)/);
@@ -681,7 +722,7 @@ var BiliUI = (function () {
     }
     if (!title) title = (card.getAttribute('title') || '').trim();
     let dateText = '';
-    const d = card.querySelector('.bili-video-card__info--date, .date, [class*="date"]');
+    const d = card.querySelector('.bili-video-card__info--date, .date, [class*="date"], [class*="pubdate"]');
     if (d) dateText = d.textContent.trim();
     return { bvid, title, pubdate: parsePubdate(dateText), pages: null };
   }
@@ -719,6 +760,10 @@ var BiliUI = (function () {
       : '已添加 ' + added + ' 个视频';
     showToast(msg);
     console.log('[BiliPlaylist] ' + msg);
+    // 后台补全缺失发布日期并重排（DOM 日期提取失败时保证按真实发布日期排序）
+    if (added > 0) {
+      backfillAndResort();
+    }
   }
 
   // ---------- 存储同步 ----------
