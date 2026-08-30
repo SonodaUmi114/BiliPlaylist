@@ -166,13 +166,23 @@ var BiliApi = (function () {
     return apiFetchJson('https://api.bilibili.com/x/web-interface/view', { bvid });
   }
 
-  // UP 主投稿 / 空间搜索（强制 WBI）
+  // UP 主投稿 / 空间搜索（强制 WBI；密钥过期 -403 时重置重试一次）
   async function fetchSpaceVideos(mid, keyword, pn, ps) {
     const params = keyword
       ? { mid, keyword, pn: pn || 1, ps: ps || 30 }
       : { mid, pn: pn || 1, ps: ps || 30 };
-    const signed = await wbiSign(params);
-    return apiFetchJson('https://api.bilibili.com/x/space/wbi/arc/search', signed);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const signed = await wbiSign(params);
+        return await apiFetchJson('https://api.bilibili.com/x/space/wbi/arc/search', signed);
+      } catch (e) {
+        if (attempt === 0 && e && e.code === -403) {
+          wbiKeys = null; // 密钥可能已轮换，重新获取
+          continue;
+        }
+        throw e;
+      }
+    }
   }
 
   return {

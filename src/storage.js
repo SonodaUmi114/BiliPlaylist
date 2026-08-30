@@ -45,12 +45,24 @@ var BiliStorage = (function () {
     await set(P + 'playerMode', mode);
   }
 
+  // —— 当前播放视频信息（顶层写入，播放器 iframe 读取，用于分P连播判断） ——
+  // { bvid, pages, updatedAt }
+  async function getCurrentVideo() {
+    return await get(P + 'currentVideo', {});
+  }
+
+  async function saveCurrentVideo(info) {
+    await set(P + 'currentVideo', info || {});
+  }
+
   return {
     getList,
     saveList,
     getProgress,
     saveProgress,
     getPlayerMode,
-    setPlayerMode
+    setPlayerMode,
+    getCurrentVideo,
+    saveCurrentVideo
   };
 })();

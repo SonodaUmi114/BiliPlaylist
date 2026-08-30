@@ -27,6 +27,12 @@
 })();
 
 function initTopLogic() {
+  // —— 记录当前视频信息（供播放器 iframe 判断分P总数，见 player.js getTotalParts） ——
+  const vm = location.pathname.match(/^\/video\/(BV\w+)/);
+  if (vm) {
+    ensureCurrentVideoInfo(vm[1]);
+  }
+
   // —— 播放器窗口模式恢复（仅播放列表跳转携带 playerMode 参数时） ——
   const mode = new URLSearchParams(location.search).get('playerMode');
   if (mode === 'fullscreen') {
@@ -42,6 +48,30 @@ function initTopLogic() {
       handleVideoCompleted(msg.bvid);
     }
   });
+}
+
+// 顶层在视频页写入当前视频信息；列表项缺分P数时调用 view 接口补全（1 次/视频，之后缓存于列表）
+async function ensureCurrentVideoInfo(bvid) {
+  try {
+    const items = await BiliStorage.getList();
+    const item = items.find((it) => it.bvid === bvid);
+    let pages = item ? item.pages : null;
+    if (item && !pages) {
+      try {
+        const v = await BiliApi.fetchView(bvid);
+        pages = (v.data && Array.isArray(v.data.pages) ? v.data.pages.length : 0) || null;
+        if (pages) {
+          item.pages = pages;
+          await BiliStorage.saveList(items);
+        }
+      } catch (e) {
+        console.warn('[BiliPlaylist] 获取分P数失败', e);
+      }
+    }
+    await BiliStorage.saveCurrentVideo({ bvid, pages, updatedAt: Date.now() });
+  } catch (e) {
+    console.warn('[BiliPlaylist] ensureCurrentVideoInfo 失败', e);
+  }
 }
 
 // 列表内某视频全部分P播完 → 自动跳转列表下一个视频（携带窗口模式参数供恢复）

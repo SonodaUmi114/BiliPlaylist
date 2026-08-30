@@ -18,6 +18,7 @@ var BiliUI = (function () {
   let hideTimer = null;
   let modeState = 'default';
   let dragIndex = -1;
+  let isDragging = false;
   let currentBvid = null;
   let isVideoPage = false;
   let isSpacePage = false;
@@ -294,6 +295,7 @@ var BiliUI = (function () {
       // 拖拽排序
       li.addEventListener('dragstart', (e) => {
         dragIndex = idx;
+        isDragging = true;
         li.classList.add('dragging');
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', it.bvid);
@@ -305,7 +307,11 @@ var BiliUI = (function () {
         li.classList.remove('drag-over');
         await moveItem(dragIndex, idx);
       });
-      li.addEventListener('dragend', () => li.classList.remove('dragging'));
+      li.addEventListener('dragend', () => {
+        li.classList.remove('dragging');
+        isDragging = false;
+        renderList();
+      });
       listEl.appendChild(li);
     });
   }
@@ -495,6 +501,8 @@ var BiliUI = (function () {
   }
 
   async function refresh() {
+    // 拖拽期间跳过整表重渲染，避免进度写入打断拖拽（拖拽结束/落点后重渲染）
+    if (isDragging) return;
     modeState = await BiliStorage.getPlayerMode();
     refreshModeButtons();
     renderList();

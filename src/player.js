@@ -92,12 +92,15 @@ var BiliPlayer = (function () {
   // —— 播放结束 ——
   async function onEnded() {
     // 1) 还有下一分P → 无刷新连播：iframe 自身刷新 p 参数（顶层页面不刷新）
-    const total = getTotalParts();
+    const total = await getTotalParts();
     if (total && part < total) {
       console.log('[BiliPlaylist] 分P ' + part + '/' + total + ' 结束，切换到下一分P');
       await saveProgress();
       const u = new URL(location.href);
-      u.searchParams.set('p', String(part + 1));
+      const next = String(part + 1);
+      // 兼容 p / page 两种参数名，确保 iframe 能识别
+      u.searchParams.set('p', next);
+      u.searchParams.set('page', next);
       location.href = u.toString();
       return;
     }
@@ -116,8 +119,13 @@ var BiliPlayer = (function () {
     chrome.runtime.sendMessage({ type: 'video-completed', bvid, part }).catch(() => {});
   }
 
-  // 分P总数：优先读播放器分P列表 DOM（选择器待实测，见 docs/api-notes.md）；失败返回 null
-  function getTotalParts() {
+  // 分P总数：优先用顶层写入的 currentVideo.pages（加入列表后打开视频时经 view 接口获得，可靠）；
+  // 兜底读播放器分P列表 DOM（选择器待实测，见 docs/api-notes.md）；都拿不到返回 null
+  async function getTotalParts() {
+    try {
+      const cv = await BiliStorage.getCurrentVideo();
+      if (cv && cv.bvid === bvid && cv.pages) return cv.pages;
+    } catch (e) { /* 忽略 */ }
     const candidates = [
       '.list-box .list-item',
       '.video-parts-list .list-item',

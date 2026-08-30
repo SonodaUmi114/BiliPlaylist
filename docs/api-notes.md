@@ -44,7 +44,8 @@
 - URL：`player.bilibili.com/player.html?bvid=...&p=N`（参数名 `p` 还是 `page`：⚠️ 待实测，当前实现两者都读）
 - video 元素：iframe 内 `document.querySelector('video')`：⚠️ 待实测
 - 分P列表 DOM（`getTotalParts` 用）：`.list-box .list-item` / `.video-parts-list .list-item` 等候选：⚠️ 待实测
-- 分P连播方案（已实现）：iframe 播完 → 自身刷新 `?p=N+1`（只刷新播放器 iframe，顶层页面不刷新，满足"不刷新模式"）
+- 分P连播方案（已实现）：iframe 播完 → 自身刷新 `?p=N+1`（只刷新播放器 iframe，顶层页面不刷新，满足"不刷新模式"）；`p` / `page` 两个参数名都会设置以兼容
+- 分P总数来源（优先级）：① 顶层写入的 `biliplaylist:currentVideo.pages`（打开视频时若列表项缺分P数则调 view 接口补全并缓存）② 播放器分P列表 DOM（待实测）③ null（按已播完处理）
 
 ### 2.4 视频页右下角
 - 我们自己的悬浮按钮固定在 `right:24px / bottom:150px`，加入按钮 `bottom:205px`
