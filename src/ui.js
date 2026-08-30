@@ -349,7 +349,10 @@ var BiliUI = (function () {
     });
   }
 
-  async function addItems(newItems) {
+  // opts.sort = true（多选批量加入）：全列表按发布时间升序重排（日期早的在前、先播放）
+  // opts.sort = false（视频页单个加入）：新增项直接追加到列表末尾，不参与排序
+  // 查重：按 bvid 去重，重复的视频不添加（返回 added/dup 供提示）
+  async function addItems(newItems, opts) {
     if (!newItems || !newItems.length) return { added: 0, dup: 0 };
     const list = await BiliStorage.getList();
     const byBvid = new Map(list.map((it) => [it.bvid, it]));
@@ -364,12 +367,15 @@ var BiliUI = (function () {
       }
     }
     let merged = Array.from(byBvid.values());
-    // 自动排序：按发布时间升序（旧→新）；无发布时间的排到最后（保持相对顺序）
-    merged = merged.sort((a, b) => {
-      const pa = a.pubdate || Number.MAX_SAFE_INTEGER;
-      const pb = b.pubdate || Number.MAX_SAFE_INTEGER;
-      return pa - pb;
-    });
+    if (opts && opts.sort && added > 0) {
+      // 多选批量加入：按发布时间升序（旧→新）；无发布时间的排到最后（保持相对顺序）
+      merged = merged.sort((a, b) => {
+        const pa = a.pubdate || Number.MAX_SAFE_INTEGER;
+        const pb = b.pubdate || Number.MAX_SAFE_INTEGER;
+        return pa - pb;
+      });
+    }
+    // sort=false 或全部重复时，merged 保持"原列表顺序 + 新项按加入顺序追加"（Map 插入序），即追加到末尾
     await BiliStorage.saveList(merged);
     renderList();
     return { added, dup };
@@ -427,8 +433,12 @@ var BiliUI = (function () {
       console.warn('[BiliPlaylist] 获取视频信息失败，退回页面标题', e);
       item.title = document.title.replace(/_[^_]*$/, '').trim();
     }
-    await addItems([item]);
-    flashAddButton();
+    const { added, dup } = await addItems([item], { sort: false });
+    if (added > 0) {
+      flashAddButton();
+    } else if (dup > 0) {
+      showToast('该视频已在播放列表中，未重复添加');
+    }
   }
 
   function flashAddButton() {
@@ -702,7 +712,7 @@ var BiliUI = (function () {
         items.push(c);
       }
     }
-    const { added, dup } = await addItems(items);
+    const { added, dup } = await addItems(items, { sort: true });
     clearSelection();
     const msg = dup > 0
       ? '已添加 ' + added + ' 个视频，' + dup + ' 个重复已跳过'
