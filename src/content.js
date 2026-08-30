@@ -6,8 +6,8 @@
   const host = location.hostname;
 
   if (!isTop) {
-    // 非顶层 frame：仅 player.bilibili.com 需要播放器适配
-    if (host === 'player.bilibili.com') {
+    // 播放器 iframe：player.bilibili.com 或站内其他子域（含 <video> 的 iframe）
+    if (host === 'player.bilibili.com' || document.querySelector('video')) {
       try {
         BiliPlayer.init();
       } catch (e) {

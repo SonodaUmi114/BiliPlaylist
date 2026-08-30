@@ -15,10 +15,20 @@ var BiliPlayer = (function () {
     return new URLSearchParams(location.search).get(name);
   }
 
-  function init() {
+  async function init() {
     bvid = getParam('bvid');
     const pRaw = getParam('p') || getParam('page');
     part = parseInt(pRaw || '1', 10) || 1;
+    if (!bvid) {
+      // 兜底：iframe URL 无 bvid 参数时，从顶层写入的 currentVideo 读取
+      try {
+        const cv = await BiliStorage.getCurrentVideo();
+        if (cv && cv.bvid) {
+          bvid = cv.bvid;
+          console.log('[BiliPlaylist] bvid 从 currentVideo 兜底: ' + bvid);
+        }
+      } catch (e) { /* 忽略 */ }
+    }
     if (!bvid) {
       console.warn('[BiliPlaylist] player iframe 未识别 bvid，跳过适配');
       return;
@@ -47,6 +57,11 @@ var BiliPlayer = (function () {
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('ended', onEnded);
     document.addEventListener('fullscreenchange', onFullscreenChange);
+    // 离开页面/切后台前强制保存一次，减少断点丢失（最多丢失 5s 节流窗口）
+    window.addEventListener('pagehide', () => saveProgress());
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') saveProgress();
+    });
   }
 
   // —— "网页全屏"自动恢复：消费顶层写入的 pendingWebFs 标记，尝试点击播放器网页全屏按钮 ——
@@ -95,6 +110,7 @@ var BiliPlayer = (function () {
     }
   }
 
+  let savedOnce = false;
   async function saveProgress() {
     if (!video || !bvid) return;
     try {
@@ -106,6 +122,10 @@ var BiliPlayer = (function () {
         updatedAt: Date.now()
       });
       await BiliStorage.saveProgress(progress);
+      if (!savedOnce) {
+        savedOnce = true;
+        console.log('[BiliPlaylist] 进度保存成功 bvid=' + bvid + ' p=' + part);
+      }
     } catch (e) { /* 忽略 */ }
   }
 
@@ -119,11 +139,15 @@ var BiliPlayer = (function () {
         try {
           if (video.duration > 60 && p.time < video.duration - 30) {
             video.currentTime = p.time;
+            console.log('[BiliPlaylist] 已恢复进度 bvid=' + bvid + ' p=' + part + ' 到 ' + p.time + 's');
           }
         } catch (e) { /* 忽略 */ }
       };
       if (video.readyState >= 1) seek();
-      else video.addEventListener('loadedmetadata', seek, { once: true });
+      else {
+        video.addEventListener('loadedmetadata', seek, { once: true });
+        video.addEventListener('loadeddata', seek, { once: true });
+      }
     } catch (e) { /* 忽略 */ }
   }
 
