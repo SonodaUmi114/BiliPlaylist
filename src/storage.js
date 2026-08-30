@@ -55,6 +55,15 @@ var BiliStorage = (function () {
     await set(P + 'currentVideo', info || {});
   }
 
+  // —— 待恢复"网页全屏"标记（顶层写入，播放器 iframe 消费后清除） ——
+  async function getPendingWebFs() {
+    return await get(P + 'pendingWebFs', false);
+  }
+
+  async function setPendingWebFs(v) {
+    await set(P + 'pendingWebFs', !!v);
+  }
+
   return {
     getList,
     saveList,
@@ -63,6 +72,8 @@ var BiliStorage = (function () {
     getPlayerMode,
     setPlayerMode,
     getCurrentVideo,
-    saveCurrentVideo
+    saveCurrentVideo,
+    getPendingWebFs,
+    setPendingWebFs
   };
 })();

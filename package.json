@@ -4,6 +4,6 @@
   "private": true,
   "description": "B站播放列表增强工具（Chrome 扩展 MV3）",
   "scripts": {
-    "test": "node test/api.test.js && node test/storage.test.js"
+    "test": "node test/api.test.js && node test/storage.test.js && node test/manifest.test.js"
   }
 }

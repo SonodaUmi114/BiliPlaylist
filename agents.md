@@ -176,7 +176,7 @@ v0.1（无构建）：
 8. **播放器窗口模式恢复（需求 8 的技术核心）**：
    - 跳转 URL 携带模式参数（如 `?playerMode=web-fullscreen`），新页面加载后由播放器适配层恢复；若 B 站 URL 已有类似参数需复用或避开。
    - **默认**：无操作。
-   - **网页全屏**：B 站"网页全屏"通常只改变播放器容器布局（不一定调用 fullscreen API），改容器样式/class 即可自动恢复（无手势限制）——开发时实测确认。
+   - **网页全屏（已实现，尽力而为）**：跳转 URL 携带 `playerMode=web-fullscreen` → 顶层写 `pendingWebFs` 标记 → 播放器 iframe 加载后尝试点击"网页全屏"按钮（候选选择器见 `player.js pickWebFullscreenButton`，命中后把实际选择器记入 api-notes）。
    - **全屏**：元素级 `requestFullscreen` 仍受用户手势限制（自动跳转后无手势会被拒）；**自动恢复用 background 的 `chrome.windows.update({ state: 'fullscreen' })` 窗口级全屏**（视觉等价 F11）规避；若检测到用户刚有过手势（如点击过页面）则优先尝试元素级全屏。
    - 实测结论记录到 `docs/api-notes.md`。
 

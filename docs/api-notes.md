@@ -46,6 +46,7 @@
 - 分P列表 DOM（`getTotalParts` 用）：`.list-box .list-item` / `.video-parts-list .list-item` 等候选：⚠️ 待实测
 - 分P连播方案（已实现）：iframe 播完 → 自身刷新 `?p=N+1`（只刷新播放器 iframe，顶层页面不刷新，满足"不刷新模式"）；`p` / `page` 两个参数名都会设置以兼容
 - 分P总数来源（优先级）：① 顶层写入的 `biliplaylist:currentVideo.pages`（打开视频时若列表项缺分P数则调 view 接口补全并缓存）② 播放器分P列表 DOM（待实测）③ null（按已播完处理）
+- "网页全屏"自动恢复（已实现，尽力而为）：跳转 URL 携带 `playerMode=web-fullscreen` → 顶层写 `biliplaylist:pendingWebFs` 标记 → iframe 加载后尝试点击网页全屏按钮（候选选择器见 `player.js pickWebFullscreenButton`）；未命中会打印 warn 日志，把实际 DOM 记录到本文件
 
 ### 2.4 视频页右下角
 - 我们自己的悬浮按钮固定在 `right:24px / bottom:150px`，加入按钮 `bottom:205px`
@@ -59,7 +60,7 @@
 - [ ] 空间页卡片选择器与数据提取（bvid/标题/发布时间）
 - [ ] player iframe 的 video 元素与分P参数名
 - [ ] 分P总数选择器（`.list-box .list-item` 等）
-- [ ] 网页全屏按钮选择器（用于"网页全屏"自动恢复，当前为 TODO）
+- [ ] 网页全屏按钮选择器：已实现候选列表（`pickWebFullscreenButton`），需实测确认命中并把实际选择器记录到本文档
 - [ ] `chrome.windows.update({state:'fullscreen'})` 无手势生效
 - [ ] 窗口模式记忆的完整链路（URL `playerMode` → 恢复）
 

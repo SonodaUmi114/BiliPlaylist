@@ -43,9 +43,47 @@ var BiliPlayer = (function () {
   function bindVideo() {
     console.log('[BiliPlaylist] player 适配已绑定 bvid=' + bvid + ' p=' + part);
     restoreProgress();
+    tryRestoreWebFullscreen();
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('ended', onEnded);
     document.addEventListener('fullscreenchange', onFullscreenChange);
+  }
+
+  // —— "网页全屏"自动恢复：消费顶层写入的 pendingWebFs 标记，尝试点击播放器网页全屏按钮 ——
+  async function tryRestoreWebFullscreen() {
+    try {
+      const pending = await BiliStorage.getPendingWebFs();
+      if (!pending) return;
+      await BiliStorage.setPendingWebFs(false);
+      setTimeout(() => {
+        const btn = pickWebFullscreenButton();
+        if (btn) {
+          console.log('[BiliPlaylist] 已点击网页全屏按钮', btn);
+          btn.click();
+        } else {
+          console.warn('[BiliPlaylist] 未找到网页全屏按钮（候选选择器均未命中，需实测记录 DOM，见 docs/api-notes.md）');
+        }
+      }, 1500);
+    } catch (e) { /* 忽略 */ }
+  }
+
+  // 候选选择器（B 站改版频繁，命中后请把实际选择器记入 docs/api-notes.md）
+  function pickWebFullscreenButton() {
+    const sels = [
+      'button[class*="web-fullscreen"], [class*="web-fullscreen"] button',
+      'button[class*="web-screen"], [class*="web-screen"] button',
+      '[title="网页全屏"]',
+      '[aria-label="网页全屏"]',
+      '.web-fullscreen-btn',
+      '[class*="fullscreen"] [class*="web"]'
+    ];
+    for (const sel of sels) {
+      try {
+        const el = document.querySelector(sel);
+        if (el) return el;
+      } catch (e) { /* 忽略 */ }
+    }
+    return null;
   }
 
   // —— 进度读取（节流 5s 写一次存储，顶层侧边栏经 storage.onChanged 同步） ——

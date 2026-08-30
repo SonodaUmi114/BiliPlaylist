@@ -38,8 +38,8 @@ function initTopLogic() {
   if (mode === 'fullscreen') {
     chrome.runtime.sendMessage({ type: 'set-window-fullscreen', state: 'fullscreen' }).catch(() => {});
   } else if (mode === 'web-fullscreen') {
-    // TODO(实测)：通知播放器 iframe 点击"网页全屏"按钮（选择器待验证，见 docs/api-notes.md）
-    console.log('[BiliPlaylist] 网页全屏恢复：待播放器适配层实现');
+    // 标记待恢复；播放器 iframe 加载后尝试点击"网页全屏"按钮（见 player.js tryRestoreWebFullscreen）
+    BiliStorage.setPendingWebFs(true);
   }
 
   // —— 播放完成消息（来自播放器 iframe，经 background 转发） ——
