@@ -179,6 +179,7 @@ var BiliApi = (function () {
     apiFetchJson,
     wbiSign,
     fetchView,
-    fetchSpaceVideos
+    fetchSpaceVideos,
+    md5
   };
 })();
