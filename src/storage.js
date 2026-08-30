@@ -6,12 +6,21 @@ var BiliStorage = (function () {
   const P = 'biliplaylist:';
 
   async function get(key, fallback) {
-    const raw = await chrome.storage.local.get(key);
-    return raw[key] !== undefined ? raw[key] : fallback;
+    try {
+      const raw = await chrome.storage.local.get(key);
+      return raw[key] !== undefined ? raw[key] : fallback;
+    } catch (e) {
+      // 扩展上下文失效（如扩展被重新加载后旧页面脚本仍在运行）：静默返回默认值
+      return fallback;
+    }
   }
 
   async function set(key, value) {
-    await chrome.storage.local.set({ [key]: value });
+    try {
+      await chrome.storage.local.set({ [key]: value });
+    } catch (e) {
+      // 同上，静默忽略
+    }
   }
 
   // —— 播放列表 ——
