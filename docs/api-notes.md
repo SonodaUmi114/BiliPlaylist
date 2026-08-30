@@ -49,6 +49,7 @@
 - "网页全屏"自动恢复（已实现，尽力而为）：跳转 URL 携带 `playerMode=web-fullscreen` → 顶层写 `biliplaylist:pendingWebFs` 标记 → iframe 加载后尝试点击网页全屏按钮（候选选择器见 `player.js pickWebFullscreenButton`）；未命中会打印 warn 日志，把实际 DOM 记录到本文件
 
 ### 2.4 右下角热区按钮簇（我们的 UI）
+- 生效范围：`www` / `space` / `t` 三域（`t.bilibili.com` 动态页仅侧边栏按钮，待实测）
 - 热区：右下角 120px；按钮位于热区中心（距边约 60px）：侧边栏按钮（☰，44px 圆形）`right:60px / bottom:60px`，页面按钮（视频页「＋ 加入列表」/ 空间页「多选」）在其左侧平行 `right:112px / bottom:60px`
 - B 站右下角自带控件（回到顶部/小窗播放）位置：⚠️ 待实测是否冲突
 - 多选按钮点击后出现顶部工具栏（`top:80px / right:24px`）与卡片复选框

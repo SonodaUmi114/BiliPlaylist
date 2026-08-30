@@ -41,7 +41,7 @@ console.log('== 注入配置 ==');
 const matches = (manifest.content_scripts || []).flatMap((cs) => cs.matches || []);
 const allFrames = (manifest.content_scripts || []).every((cs) => cs.all_frames === true);
 assert('content_scripts 全部 all_frames: true', allFrames);
-for (const d of ['www.bilibili.com', 'space.bilibili.com', 'player.bilibili.com']) {
+for (const d of ['www.bilibili.com', 'space.bilibili.com', 'player.bilibili.com', 't.bilibili.com']) {
   assert('matches 覆盖 ' + d, matches.some((m) => m.includes(d)));
 }
 
@@ -52,7 +52,7 @@ for (const p of ['storage', 'scripting']) {
 }
 assert('不包含 fullscreen（Chrome App 专用权限，扩展声明会被忽略并打 warning）', !perms.includes('fullscreen'));
 const hp = manifest.host_permissions || [];
-for (const d of ['www.bilibili.com', 'space.bilibili.com', 'player.bilibili.com', 'api.bilibili.com']) {
+for (const d of ['www.bilibili.com', 'space.bilibili.com', 'player.bilibili.com', 't.bilibili.com', 'api.bilibili.com']) {
   assert('host_permissions 覆盖 ' + d, hp.some((h) => h.includes(d)));
 }
 
