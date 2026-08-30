@@ -117,6 +117,14 @@ var BiliUI = (function () {
     .sel-bar button.primary { background: #00aeec; border-color: #00aeec; color: #fff; }
     .sel-bar button:hover { background: #f5f6f7; }
     .sel-bar button.primary:hover { background: #00b3f0; }
+    .toast {
+      position: fixed; bottom: 130px; left: 50%; transform: translateX(-50%) translateY(8px);
+      z-index: 2147483647; background: #ffffff; border: 1px solid #e3e5e7; color: #18191c;
+      font-size: 13px; padding: 8px 16px; border-radius: 8px; white-space: nowrap;
+      box-shadow: 0 4px 16px rgba(0,0,0,.14);
+      opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   `;
 
   // 空间页卡片多选样式（注入页面 DOM，前缀类名避免冲突）
@@ -176,10 +184,10 @@ var BiliUI = (function () {
     ensureSidebar();
     initFab();
     initModes();
-    if (isVideoPage) initAddButton();
-    if (isSpacePage) initSelButton();
+    updateSideButtons();
     renderList();
     initStorageSync();
+    initSpaWatcher();
   }
 
   // ---------- Shadow DOM 骨架 ----------
@@ -289,7 +297,6 @@ var BiliUI = (function () {
     listEl.innerHTML = '';
     items.forEach((it, idx) => {
       const p = progress[it.bvid] || {};
-      const part = p.part || 1;
       const pages = it.pages || '?';
       const time = p.time || 0;
       const done = !!p.done;
@@ -302,7 +309,7 @@ var BiliUI = (function () {
         '<div class="item-main">' +
           '<div class="title">' + escapeHtml(it.title || it.bvid) + '</div>' +
           (it.author ? '<div class="author">' + escapeHtml(it.author) + '</div>' : '') +
-          '<div class="meta">' + part + '/' + pages + ' · ' + fmtTime(time) +
+          '<div class="meta">1/' + pages + ' · ' + fmtTime(time) +
             (done ? ' · <span class="done">✓ 已看完</span>' : '') +
           '</div>' +
         '</div>' +
@@ -343,12 +350,17 @@ var BiliUI = (function () {
   }
 
   async function addItems(newItems) {
-    if (!newItems || !newItems.length) return;
+    if (!newItems || !newItems.length) return { added: 0, dup: 0 };
     const list = await BiliStorage.getList();
     const byBvid = new Map(list.map((it) => [it.bvid, it]));
+    let added = 0;
+    let dup = 0;
     for (const it of newItems) {
       if (it.bvid && !byBvid.has(it.bvid)) {
         byBvid.set(it.bvid, Object.assign({ addedAt: Date.now() }, it));
+        added++;
+      } else if (it.bvid) {
+        dup++;
       }
     }
     let merged = Array.from(byBvid.values());
@@ -360,6 +372,7 @@ var BiliUI = (function () {
     });
     await BiliStorage.saveList(merged);
     renderList();
+    return { added, dup };
   }
 
   async function removeItem(bvid) {
@@ -379,8 +392,12 @@ var BiliUI = (function () {
   }
 
   function jumpToVideo(bvid) {
-    location.href = 'https://www.bilibili.com/video/' + bvid +
+    const url = 'https://www.bilibili.com/video/' + bvid +
       '?p=1&fromPlaylist=1&playerMode=' + modeState;
+    // 侧边栏手动播放：新标签页打开，不替换当前页
+    chrome.runtime.sendMessage({ type: 'open-tab', url }).catch(() => {
+      try { window.open(url, '_blank'); } catch (e) { /* 忽略 */ }
+    });
   }
 
   // ---------- 视频页「加入播放列表」按钮（热区按钮簇成员） ----------
@@ -435,6 +452,72 @@ var BiliUI = (function () {
     root.appendChild(btn);
     clusterBtns.push(btn);
     sel.button = btn;
+  }
+
+  // ---------- 页面按钮随 URL 更新（空间页 SPA 内切换/搜索后无需刷新） ----------
+  function updateSideButtons() {
+    const keepMode = sel.mode && isSpacePage;
+    removeButton('.add-btn');
+    removeButton('.sel-btn');
+    if (isVideoPage) initAddButton();
+    if (isSpacePage) {
+      initSelButton();
+      if (keepMode) {
+        if (sel.button) sel.button.classList.add('on');
+        ensureSelBar();
+        if (sel.bar) sel.bar.style.display = '';
+        attachToCards();
+        if (!sel.observer) {
+          sel.observer = new MutationObserver(() => attachToCards());
+          sel.observer.observe(document.body, { childList: true, subtree: true });
+        }
+      }
+    } else if (sel.mode) {
+      // 离开空间页：关闭多选
+      sel.mode = false;
+      detachCheckboxes();
+      if (sel.observer) { sel.observer.disconnect(); sel.observer = null; }
+    }
+  }
+
+  function removeButton(cls) {
+    const el = root && root.querySelector(cls);
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+    const name = cls.slice(1);
+    const idx = clusterBtns.findIndex((b) => b && b.classList && b.classList.contains(name));
+    if (idx >= 0) clusterBtns.splice(idx, 1);
+  }
+
+  // 轻量 URL 轮询：B 站空间页是 SPA（pushState），URL 变化后更新页面类型与热区按钮
+  function initSpaWatcher() {
+    let lastHref = location.href;
+    setInterval(() => {
+      if (location.href === lastHref) return;
+      lastHref = location.href;
+      const u = new URL(location.href);
+      isVideoPage = u.hostname === 'www.bilibili.com' && /^\/video\//.test(u.pathname);
+      isSpacePage = u.hostname === 'space.bilibili.com' &&
+        (/\/video$/.test(u.pathname) || /\/search$/.test(u.pathname));
+      const m = u.pathname.match(/^\/video\/(BV\w+)/);
+      currentBvid = m ? m[1] : null;
+      updateSideButtons();
+      renderList();
+    }, 800);
+  }
+
+  // ---------- 轻量提示（底部居中，自动消失） ----------
+  function showToast(message) {
+    if (!root) return;
+    let t = root.querySelector('.toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.className = 'toast';
+      root.appendChild(t);
+    }
+    t.textContent = message;
+    t.classList.add('show');
+    clearTimeout(t._t);
+    t._t = setTimeout(() => t.classList.remove('show'), 2600);
   }
 
   function toggleMultiSelect() {
@@ -619,9 +702,13 @@ var BiliUI = (function () {
         items.push(c);
       }
     }
-    await addItems(items);
+    const { added, dup } = await addItems(items);
     clearSelection();
-    console.log('[BiliPlaylist] 已批量加入 ' + items.length + ' 个视频');
+    const msg = dup > 0
+      ? '已添加 ' + added + ' 个视频，' + dup + ' 个重复已跳过'
+      : '已添加 ' + added + ' 个视频';
+    showToast(msg);
+    console.log('[BiliPlaylist] ' + msg);
   }
 
   // ---------- 存储同步 ----------

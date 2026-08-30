@@ -57,6 +57,8 @@
 ### 2.5 空间页多选（opt-in）
 - 默认关闭；热区「多选」开启后：**整卡覆盖层**（`.biliplaylist-select-layer`）为点击目标（点卡片切换选中，不进入播放页），缩略图悬停预览被抑制（`img { pointer-events: none }`）
 - 小复选框绝对定位（`getBoundingClientRect` 测量日期行高度、卡片右端 8px）作选中指示，与日期平行，待实测
+- 添加完成 toast 提示（已添加 N 个，M 个重复已跳过）
+- 空间页 SPA 内 URL 变化（首次搜索/tab 切换）由 800ms 轮询驱动按钮更新，待实测
 - 卡片收集：`a[href*="/video/BV"]` 向上找 `.bili-video-card`（避免嵌套链接重复勾选），待实测
 
 ---

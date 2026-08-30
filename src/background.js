@@ -34,6 +34,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true, data: results[0] && results[0].result });
           break;
         }
+        case 'open-tab': {
+          // 侧边栏手动播放：新标签页打开（chrome.tabs.create 无需 "tabs" 权限）
+          if (msg.url) {
+            await chrome.tabs.create({ url: msg.url });
+          }
+          sendResponse({ ok: true });
+          break;
+        }
         case 'video-completed': {
           // 播放器 iframe 播完一个视频（全部分P），通知顶层 frame 处理列表跳转
           if (sender.tab && sender.tab.id !== undefined) {
