@@ -68,16 +68,15 @@ var BiliUI = (function () {
     .panel.open { transform: none; }
     .panel-head {
       padding: 12px 14px; border-bottom: 1px solid #f1f2f3;
-      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      display: flex; align-items: center; gap: 6px; flex-wrap: nowrap;
     }
-    .panel-title { font-size: 15px; font-weight: 600; color: #18191c; }
-    .panel-count { font-size: 12px; color: #9499a0; }
-    .modes { display: flex; gap: 4px; margin-left: auto; }
-    .modes button {
+    .panel-title { font-size: 15px; font-weight: 600; color: #18191c; white-space: nowrap; }
+    .panel-count { font-size: 12px; color: #9499a0; white-space: nowrap; }
+    .mode-select {
       border: 1px solid #e3e5e7; background: #fff; color: #61666d;
-      font-size: 11px; padding: 2px 8px; border-radius: 10px; cursor: pointer; white-space: nowrap;
+      font-size: 11px; padding: 2px 4px; border-radius: 6px; cursor: pointer;
+      margin-left: auto; max-width: 96px; white-space: nowrap;
     }
-    .modes button.on { background: #00aeec; border-color: #00aeec; color: #fff; }
     .refresh-all, .close {
       border: none; background: none; color: #9499a0; font-size: 15px; cursor: pointer; padding: 2px 6px;
     }
@@ -216,11 +215,11 @@ var BiliUI = (function () {
         <header class="panel-head">
           <span class="panel-title">播放列表</span>
           <span class="panel-count" id="count"></span>
-          <div class="modes">
-            <button data-mode="default">默认</button>
-            <button data-mode="web-fullscreen">网页全屏</button>
-            <button data-mode="fullscreen">全屏</button>
-          </div>
+          <select class="mode-select" id="modeSelect" title="播放器窗口模式">
+            <option value="default">默认</option>
+            <option value="web-fullscreen">网页全屏</option>
+            <option value="fullscreen">全屏</option>
+          </select>
           <button class="refresh-all" id="refreshAll" title="刷新列表 + 同步观看历史（官方断点，本地保存）">↻</button>
           <button class="close" id="close" title="关闭">✕</button>
         </header>
@@ -289,23 +288,23 @@ var BiliUI = (function () {
     }
   }
 
-  // ---------- 窗口模式 ----------
+  // ---------- 窗口模式（下拉框） ----------
   async function initModes() {
     modeState = await BiliStorage.getPlayerMode();
     refreshModeButtons();
-    root.querySelectorAll('.modes button').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        modeState = btn.dataset.mode;
+    const sel = root.querySelector('#modeSelect');
+    if (sel) {
+      sel.addEventListener('change', async () => {
+        modeState = sel.value;
         await BiliStorage.setPlayerMode(modeState);
         refreshModeButtons();
       });
-    });
+    }
   }
 
   function refreshModeButtons() {
-    root.querySelectorAll('.modes button').forEach((btn) => {
-      btn.classList.toggle('on', btn.dataset.mode === modeState);
-    });
+    const sel = root.querySelector('#modeSelect');
+    if (sel && sel.value !== modeState) sel.value = modeState;
   }
 
   // ---------- 列表渲染 ----------
