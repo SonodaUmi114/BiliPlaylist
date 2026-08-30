@@ -5,6 +5,8 @@
 //  3) set-window-fullscreen：无用户手势的窗口级全屏/还原（规避 requestFullscreen 用户激活限制）
 'use strict';
 
+console.log('[BiliPlaylist] background service worker 已启动 v' + chrome.runtime.getManifest().version);
+
 // 在页面 MAIN world 执行的 fetch 函数（会被 chrome.scripting 序列化后注入）
 async function pageContextFetch(url, opts) {
   const resp = await fetch(url, Object.assign({ credentials: 'include' }, opts || {}));

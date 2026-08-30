@@ -16,6 +16,7 @@ var BiliPlayer = (function () {
   }
 
   async function init() {
+    console.log('[BiliPlaylist] player 适配启动: ' + location.href);
     bvid = getParam('bvid');
     const pRaw = getParam('p') || getParam('page');
     part = parseInt(pRaw || '1', 10) || 1;

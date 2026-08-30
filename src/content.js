@@ -23,6 +23,7 @@
   } catch (e) {
     console.error('[BiliPlaylist] UI 初始化失败', e);
   }
+  console.log('[BiliPlaylist] top frame 已注入 v' + chrome.runtime.getManifest().version + ' | ' + location.href);
   initTopLogic();
 })();
 
