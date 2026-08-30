@@ -95,7 +95,8 @@ var BiliUI = (function () {
     .author { font-size: 12px; color: #9499a0; margin-top: 2px; }
     .meta { font-size: 12px; color: #9499a0; margin-top: 4px; }
     .meta .done { color: #00aeec; font-weight: 600; }
-    .actions { display: flex; flex-direction: column; }
+    .actions { display: flex; flex-direction: column; gap: 4px; }
+    .actions .play:hover { color: #00aeec; border-color: #00aeec; }
     .actions button {
       width: 24px; height: 24px; border: 1px solid #e3e5e7; background: #fff; color: #61666d;
       border-radius: 6px; cursor: pointer; font-size: 13px; line-height: 1;
@@ -118,20 +119,27 @@ var BiliUI = (function () {
     .sel-bar button.primary:hover { background: #00b3f0; }
   `;
 
-  // 空间页卡片勾选框样式（注入页面 DOM，前缀类名避免冲突）
+  // 空间页卡片多选样式（注入页面 DOM，前缀类名避免冲突）
   const PAGE_CSS = `
     .biliplaylist-card { position: relative !important; }
+    .biliplaylist-select-layer {
+      position: absolute; inset: 0; z-index: 10; cursor: pointer; background: transparent;
+    }
+    .biliplaylist-card:hover .biliplaylist-select-layer { background: rgba(0, 174, 236, 0.05); }
+    .biliplaylist-card.biliplaylist-selected .biliplaylist-select-layer { background: rgba(0, 174, 236, 0.08); }
     .biliplaylist-card.biliplaylist-selected::after {
-      content: ''; position: absolute; inset: 0; z-index: 8;
+      content: ''; position: absolute; inset: 0; z-index: 12;
       border: 2px solid #00aeec; border-radius: 6px; pointer-events: none; box-sizing: border-box;
     }
     .biliplaylist-check {
-      display: inline-block; width: 16px; height: 16px; border-radius: 4px;
+      position: absolute; z-index: 11; width: 18px; height: 18px; border-radius: 4px;
       border: 2px solid #9499a0; background: #ffffff;
-      cursor: pointer; font-size: 11px; color: #fff; line-height: 1;
-      text-align: center; vertical-align: middle; margin-left: 8px; user-select: none;
+      font-size: 12px; color: #fff; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      pointer-events: none; user-select: none;
     }
     .biliplaylist-check.on { background: #00aeec; border-color: #00aeec; }
+    .biliplaylist-card.biliplaylist-select-active img { pointer-events: none; }
   `;
 
   // ---------- 工具 ----------
@@ -299,10 +307,11 @@ var BiliUI = (function () {
           '</div>' +
         '</div>' +
         '<div class="actions">' +
+          '<button class="play" title="播放">▶</button>' +
           '<button class="del" title="删除">✕</button>' +
         '</div>';
-      li.addEventListener('click', (e) => {
-        if (e.target.closest('button')) return;
+      li.querySelector('.play').addEventListener('click', (e) => {
+        e.stopPropagation();
         jumpToVideo(it.bvid);
       });
       li.querySelector('.del').addEventListener('click', async (e) => {
@@ -480,54 +489,80 @@ var BiliUI = (function () {
     for (const card of getCards()) {
       if (card.dataset.biliplaylistSel) continue;
       card.dataset.biliplaylistSel = '1';
-      card.classList.add('biliplaylist-card');
-      const box = makeCheckbox(card);
-      sel.map.set(card, box);
+      card.classList.add('biliplaylist-card', 'biliplaylist-select-active');
+      const ui = makeSelectUI(card);
+      sel.map.set(card, ui);
     }
   }
 
-  // 复选框放在视频名称下方"日期那一行"的最右端（插在日期元素之后）
-  function makeCheckbox(card) {
+  // 多选模式：整卡覆盖层为点击目标（点卡片切换选中，不进入播放页），
+  // 小复选框仅作选中指示，绝对定位到"日期行"高度、卡片右端（与日期平行）
+  function makeSelectUI(card) {
+    const layer = document.createElement('div');
+    layer.className = 'biliplaylist-select-layer';
+    layer.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleSelect(card);
+    });
+    card.appendChild(layer);
+
     const box = document.createElement('span');
     box.className = 'biliplaylist-check';
     box.textContent = '✓';
-    box.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      toggleSelect(card, box);
-    });
-    let dateEl = null;
-    try {
-      dateEl = card.querySelector('.bili-video-card__info--date, .date, [class*="date"]');
-    } catch (e) { /* 忽略 */ }
-    if (dateEl && dateEl.parentNode) {
-      dateEl.after(box);
+    card.appendChild(box);
+
+    const dateEl = findDateEl(card);
+    if (dateEl) {
+      try {
+        const cardRect = card.getBoundingClientRect();
+        const dateRect = dateEl.getBoundingClientRect();
+        if (cardRect.height && dateRect.height) {
+          const top = dateRect.top - cardRect.top + (dateRect.height - box.offsetHeight) / 2;
+          box.style.top = Math.max(0, Math.round(top)) + 'px';
+        } else {
+          box.style.top = '8px';
+        }
+      } catch (e) {
+        box.style.top = '8px';
+      }
     } else {
-      card.appendChild(box);
+      box.style.top = '8px';
     }
-    return box;
+    box.style.right = '8px';
+    return { layer, box };
+  }
+
+  function findDateEl(card) {
+    try {
+      return card.querySelector('.bili-video-card__info--date, .date, [class*="date"]');
+    } catch (e) {
+      return null;
+    }
   }
 
   function detachCheckboxes() {
-    for (const [card, box] of sel.map) {
-      card.classList.remove('biliplaylist-selected', 'biliplaylist-card');
-      if (box.parentNode) box.parentNode.removeChild(box);
+    for (const [card, ui] of sel.map) {
+      card.classList.remove('biliplaylist-selected', 'biliplaylist-card', 'biliplaylist-select-active');
+      if (ui.layer && ui.layer.parentNode) ui.layer.parentNode.removeChild(ui.layer);
+      if (ui.box && ui.box.parentNode) ui.box.parentNode.removeChild(ui.box);
     }
     sel.map.clear();
     if (sel.bar) sel.bar.style.display = 'none';
     if (sel.countEl) sel.countEl.textContent = '0';
   }
 
-  function toggleSelect(card, box) {
+  function toggleSelect(card) {
     const on = card.classList.toggle('biliplaylist-selected');
-    box.classList.toggle('on', on);
+    const ui = sel.map.get(card);
+    if (ui && ui.box) ui.box.classList.toggle('on', on);
     updateSelCount();
   }
 
   function clearSelection() {
-    for (const [card, box] of sel.map) {
+    for (const [card, ui] of sel.map) {
       card.classList.remove('biliplaylist-selected');
-      box.classList.remove('on');
+      if (ui.box) ui.box.classList.remove('on');
     }
     updateSelCount();
   }
