@@ -116,12 +116,13 @@ v0.1（无构建）：
    - 所有注入页面的 UI 用 **Shadow DOM** 包裹，不污染 B 站页面样式，也避免被 B 站样式影响。
    - **配色约定（用户明确要求）**：整体采用**白灰配色**，符合 B 站网页版简约风格；**不使用粉色/彩色**；强调色限用 B 站蓝（`#00AEEC` 系）或中性灰阶，深色模式下用灰阶适配。
    - 图标/交互保持与 B 站视觉风格协调；侧边栏宽约 300–360px，固定于页面右侧。
+   - **例外（最小污染）**：空间页卡片上的多选勾选框必须注入页面 DOM，其样式通过独立 `<style id="biliplaylist-page-css">` + `biliplaylist-*` 前缀类注入，禁用前缀类即可整体移除。
 3. **DOM 选择器**
    - 优先使用 B 站页面上稳定、语义化的选择器（`data-*` 属性、`class` 前缀 `bili-`）；避免依赖可能随改版变化的深嵌套 class。
    - 挂载点选择在页面里寻找后**写进 `docs/api-notes.md` 并注明验证日期**。
 4. **接口调用**
-   - 所有 B 站接口调用集中在 `src/api/`，不在 UI 逻辑里散落 fetch。
-   - content script 内 `fetch(url, { credentials: 'include' })` 即可带 cookie（B 站 API 自身 CORS 允许跨域带 cookie）；跨域不被拦截依赖 manifest `host_permissions` 声明 `https://api.bilibili.com/*`、`https://*.bilibili.com/*`。
+   - 所有 B 站接口调用集中在 `src/api.js`，不在 UI 逻辑里散落 fetch。
+   - **请求方式（已实现，核心依赖）**：content script → `chrome.runtime.sendMessage('api-fetch')` → background 用 `chrome.scripting.executeScript({ world: 'MAIN' })` 在**页面上下文**执行 fetch（`credentials: 'include'`）——等同站点自身请求，自动带 cookie（登录态/buvid3）与 CORS。需 `"scripting"` 权限。
    - 需要扩展级能力（如窗口全屏）时通过 `chrome.runtime.sendMessage` 交给 `background.js`。
 5. **持久化（重要）**
    - 统一走 **`chrome.storage.local`**：扩展级存储，**天然跨页面、跨子域共享**（`www` / `space` / `player` 都能读写），直接解决跨源问题，无需 GM 存储。
@@ -132,7 +133,7 @@ v0.1（无构建）：
    - `manifest.json` 的 `version` 字段维护语义化版本；有可见变更必须递增。
    - commit message 用中文，遵循 Conventional Commits（`feat:` / `fix:` / `docs:` / `refactor:`）。
 7. **权限最小化**
-   - manifest 权限只申请必需项：`storage`、`fullscreen`（窗口级全屏）、`host_permissions`（bilibili 相关域）；新增权限必须谨慎并在 §11 记录理由。
+   - manifest 权限只申请必需项：`storage`、`fullscreen`（窗口级全屏）、`scripting`（MAIN world fetch 桥）、`host_permissions`（bilibili 相关域）；新增权限必须谨慎并在 §11 记录理由。
 8. **不做什么**
    - 不绕过风控、不爬取用户不可见数据、不干扰 B 站广告以外的正常功能。
    - 不请求任何需要额外鉴权（除登录 cookie 外）的接口。
@@ -164,7 +165,7 @@ v0.1（无构建）：
 
 1. **B 站前端频繁改版**：播放器 DOM、页面布局、接口签名可能随时变化。选择器与接口结论必须记录验证日期，改版后优先怀疑此处。
 2. **播放器是跨域 iframe + 需要播放器适配层**：B 站视频页播放器位于 iframe（`player.bilibili.com/player.html`）。content script 通过 manifest `all_frames: true` + matches 直接注入该 frame（扩展可在跨域 frame 运行），**iframe 实例直接操作 video DOM**（读取分P/时间、监听 `timeupdate`/`ended`、切换分P），无需同源访问。
-   - **分P内连播**：iframe 实例监听播放结束 → 无刷新切换下一分P（操作播放器分P切换 UI 或播放器内部 API）；全部分P播完 → 通知顶层 `location` 跳转列表下一个视频（URL 携带 `?p=` 与播放器模式参数）。
+   - **分P内连播（已实现）**：iframe 实例监听 `video.ended` → 无刷新切换下一分P：**iframe 自身刷新 `?p=N+1`**（只刷新播放器 iframe，顶层页面不刷新，即"不刷新模式"）；分P总数优先读播放器分P列表 DOM（选择器待实测），读不到时直接按"已播完"处理。全部分P播完 → iframe 发 `video-completed` 消息 → background 转发 → 顶层 `location` 跳转列表下一个视频（URL 携带 `?p=1&playerMode=`）。
    - **跨 frame 通信**：iframe 实例用 `chrome.runtime.sendMessage` 或写 `chrome.storage` 触发 `onChanged`，顶层实例据此更新侧边栏进度显示。
 3. **注入范围控制**：content_scripts 用 `matches` + `all_frames: true` 精确控制注入域；**UI 只在顶层 frame 挂载**（`window === window.top`），iframe 实例只跑播放器适配层，避免重复挂面板。
 4. **"改了没生效"排查**：顺序 = 扩展"重新加载" → 页面刷新 → console 看报错（§5）。
@@ -213,7 +214,7 @@ v0.1（无构建）：
 - [x] 配色：白灰简约、B 站风格、不用粉色
 - [x] 播放进度记忆：需要（含分P位置）
 - [x] 目标浏览器：仅 Chrome / Edge
-- [x] 扩展权限最小集：`storage`、`fullscreen`、`host_permissions`（bilibili 相关域）——新增权限需在此记录理由
+- [x] 扩展权限最小集：`storage`、`fullscreen`、`scripting`（MAIN world fetch 桥）、`host_permissions`（bilibili 相关域）——新增权限需在此记录理由
 
 **剩余待确认（不阻塞开发，可后续再定）：**
 

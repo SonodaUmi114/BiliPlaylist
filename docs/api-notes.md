@@ -1,0 +1,71 @@
+# B 站接口 / 页面结构调研笔记
+
+> 规则：每次实测后更新，注明**验证日期**与结论。B 站前端频繁改版，任何选择器/接口结论过期后优先怀疑此处。
+> 状态图例：✅ 已验证可用 ／ ⚠️ 初稿待实测 ／ ❌ 已失效
+
+---
+
+## 1. 接口
+
+### 1.1 视频信息 `GET /x/web-interface/view`
+- 参数：`bvid`
+- 用途：加入列表时获取标题 / 发布时间（`pubdate`）/ 分P总数（`data.pages.length`）
+- 是否强制 WBI：⚠️ 初稿按"不强制"实现（未实测）
+- 状态：⚠️ 待实测
+
+### 1.2 UP 主投稿 / 空间搜索 `GET /x/space/wbi/arc/search`
+- 参数：`mid`（必须）、`keyword`（搜索时）、`pn`、`ps`
+- 用途：v0.1 未使用（空间页多选直接读 DOM），预留
+- 是否强制 WBI：✅ 路径带 `wbi`，强制签名（已按公开算法实现 `api.js` 的 `wbiSign`）
+- 密钥获取：`GET /x/web-interface/nav` → `data.wbi_img.{img_url,sub_url}` 文件名去掉扩展名即密钥
+- 状态：⚠️ 算法已实现，接口本身待实测
+
+### 1.3 请求方式：页面 MAIN world fetch 桥（重要实现决策）
+- 实现：content script → `chrome.runtime.sendMessage('api-fetch')` → background 用 `chrome.scripting.executeScript({ world:'MAIN' })` 在页面上下文执行 fetch（`credentials:'include'`）
+- 原因：content script 的 fetch 受扩展隔离上下文影响，cookie/CORS 行为与站点自身请求不同；MAIN world fetch 等同站点自己发请求，自动带 cookie（登录态、buvid3）与 CORS
+- 已用此方案实现 `api.js`，需实测确认带 cookie 成功
+
+---
+
+## 2. 页面结构（选择器）
+
+### 2.1 空间页视频卡片
+- 候选选择器：`a[href*="/video/BV"]`（通用兜底，当前实现用这个）
+  - 新 UI 卡片：`.bili-video-card`（本身是 `<a>`）
+  - 旧 UI 卡片：`.small-item`
+- 标题：`.bili-video-card__info--tit` / `.title` / `[title]`
+- 发布时间：`.bili-video-card__info--date` / `.date` / `[class*="date"]`
+- 状态：⚠️ 待实测（开发时在真实空间页确认并补日期）
+
+### 2.2 空间搜索页 `space.bilibili.com/{uid}/search?keyword=...`
+- 页面结构是否与投稿页同款卡片：⚠️ 待实测
+
+### 2.3 播放器 iframe
+- URL：`player.bilibili.com/player.html?bvid=...&p=N`（参数名 `p` 还是 `page`：⚠️ 待实测，当前实现两者都读）
+- video 元素：iframe 内 `document.querySelector('video')`：⚠️ 待实测
+- 分P列表 DOM（`getTotalParts` 用）：`.list-box .list-item` / `.video-parts-list .list-item` 等候选：⚠️ 待实测
+- 分P连播方案（已实现）：iframe 播完 → 自身刷新 `?p=N+1`（只刷新播放器 iframe，顶层页面不刷新，满足"不刷新模式"）
+
+### 2.4 视频页右下角
+- 我们自己的悬浮按钮固定在 `right:24px / bottom:150px`，加入按钮 `bottom:205px`
+- B 站右下角自带控件（回到顶部/小窗播放）位置：⚠️ 待实测是否冲突
+
+---
+
+## 3. 待验证清单（按优先级）
+
+- [ ] `chrome.scripting` MAIN world fetch 桥在真实页面上带 cookie 成功（核心依赖）
+- [ ] 空间页卡片选择器与数据提取（bvid/标题/发布时间）
+- [ ] player iframe 的 video 元素与分P参数名
+- [ ] 分P总数选择器（`.list-box .list-item` 等）
+- [ ] 网页全屏按钮选择器（用于"网页全屏"自动恢复，当前为 TODO）
+- [ ] `chrome.windows.update({state:'fullscreen'})` 无手势生效
+- [ ] 窗口模式记忆的完整链路（URL `playerMode` → 恢复）
+
+---
+
+## 4. 已确认的固定事实
+
+- 2023-03 起 B 站 web 端部分接口强制 WBI 签名（`w_rid` + `wts`）
+- `requestFullscreen` 必须用户手势触发（transient user activation）——这是选型 Chrome 扩展的核心原因
+- `chrome.windows.update({state:'fullscreen'})` 需要 `"fullscreen"` 权限，且无需用户手势
