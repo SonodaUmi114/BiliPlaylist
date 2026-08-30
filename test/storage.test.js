@@ -68,6 +68,12 @@ function assert(name, cond) {
   await S.saveCurrentVideo(null);
   assert('saveCurrentVideo(null) 也存为对象', typeof (await S.getCurrentVideo()) === 'object' && (await S.getCurrentVideo()) !== null);
 
+  console.log('== 观看历史 ==');
+  assert('无数据时 getHistory 返回 []', Array.isArray(await S.getHistory()) && (await S.getHistory()).length === 0);
+  await S.saveHistory([{ bvid: 'BV1', title: '视频一', part: 2, time: 100, viewAt: 1700000000 }]);
+  const hist = await S.getHistory();
+  assert('saveHistory/getHistory 往返', hist.length === 1 && hist[0].time === 100 && hist[0].viewAt === 1700000000);
+
   console.log('== key 前缀 ==');
   assert('所有 key 使用 biliplaylist: 前缀', Object.keys(store).length > 0 && Object.keys(store).every((k) => k.indexOf('biliplaylist:') === 0));
 

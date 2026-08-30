@@ -55,6 +55,16 @@ var BiliStorage = (function () {
     await set(P + 'currentVideo', info || {});
   }
 
+  // —— 观看历史备份（仅播放列表内视频，来源：官方历史接口，本地永久保留） ——
+  // entries: { bvid, title, author, part, partTitle, time, duration, viewAt }
+  async function getHistory() {
+    return await get(P + 'history', []);
+  }
+
+  async function saveHistory(entries) {
+    await set(P + 'history', entries || []);
+  }
+
   // —— 待恢复"网页全屏"标记（顶层写入，播放器 iframe 消费后清除） ——
   async function getPendingWebFs() {
     return await get(P + 'pendingWebFs', false);
@@ -73,6 +83,8 @@ var BiliStorage = (function () {
     setPlayerMode,
     getCurrentVideo,
     saveCurrentVideo,
+    getHistory,
+    saveHistory,
     getPendingWebFs,
     setPendingWebFs
   };

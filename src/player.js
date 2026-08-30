@@ -5,6 +5,10 @@
 'use strict';
 
 var BiliPlayer = (function () {
+  // 断点方案（2025 切换）：以 B 站官方观看历史接口为准（同步进 biliplaylist:progress）；
+  // 旧的 video 元素轮询保存已停用，备份在分支 backup/old-progress-video-element
+  const USE_OFFICIAL_PROGRESS = true;
+
   let bvid = null;
   let part = 1;
   let video = null;
@@ -64,14 +68,16 @@ var BiliPlayer = (function () {
     console.log('[BiliPlaylist] player 适配已绑定 bvid=' + bvid + ' p=' + part);
     restoreProgress();
     tryRestoreWebFullscreen();
-    video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('ended', onEnded);
     document.addEventListener('fullscreenchange', onFullscreenChange);
-    // 离开页面/切后台前强制保存一次，减少断点丢失（最多丢失 5s 节流窗口）
-    window.addEventListener('pagehide', () => saveProgress());
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') saveProgress();
-    });
+    if (!USE_OFFICIAL_PROGRESS) {
+      // 旧方案（已停用）：video 元素轮询保存断点
+      video.addEventListener('timeupdate', onTimeUpdate);
+      window.addEventListener('pagehide', () => saveProgress());
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') saveProgress();
+      });
+    }
   }
 
   // —— "网页全屏"自动恢复：消费顶层写入的 pendingWebFs 标记，尝试点击播放器网页全屏按钮 ——
@@ -122,6 +128,7 @@ var BiliPlayer = (function () {
 
   let savedOnce = false;
   async function saveProgress() {
+    if (USE_OFFICIAL_PROGRESS) return; // 官方历史方案：断点由历史接口同步，不再轮询 video
     if (!video || !bvid) return;
     try {
       const progress = await BiliStorage.getProgress();
@@ -250,5 +257,20 @@ var BiliPlayer = (function () {
     BiliStorage.setPlayerMode(fs ? 'fullscreen' : 'default');
   }
 
-  return { init };
+  // 应用官方历史同步来的断点（同步完成后调用；仅当保存值明显超前当前播放位置时 seek，避免覆盖用户手动位置）
+  async function applySavedProgress() {
+    if (!video || !bvid) return;
+    try {
+      const progress = await BiliStorage.getProgress();
+      const p = progress[bvid];
+      if (!p || p.part !== part || !(p.time > 5)) return;
+      const cur = video.currentTime || 0;
+      if (p.time - cur > 10 && video.duration > 10 && p.time < video.duration - 10) {
+        video.currentTime = p.time;
+        console.log('[BiliPlaylist] 官方历史断点已应用 ' + p.time + 's');
+      }
+    } catch (e) { /* 忽略 */ }
+  }
+
+  return { init, applySavedProgress };
 })();

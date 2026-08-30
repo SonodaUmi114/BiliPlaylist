@@ -25,6 +25,15 @@
 - 原因：content script 的 fetch 受扩展隔离上下文影响，cookie/CORS 行为与站点自身请求不同；MAIN world fetch 等同站点自己发请求，自动带 cookie（登录态、buvid3）与 CORS
 - 已用此方案实现 `api.js`，需实测确认带 cookie 成功
 
+### 1.4 官方观看历史 `GET /x/web-interface/history/cursor`（断点来源，2025 启用）
+- 参数：`max`（上一页返回的 `data.cursor.max`，首屏省略）、`ps`（默认 30）
+- 返回 `data.list[]`：`title`、`author_name`、`bvid`、`progress`（断点秒）、`duration`、`history.{page,part,cid,business,view_at}`
+- 需登录（未登录返回 -101）；仅取 `history.business === 'archive'` 的视频条目
+- 用途：**断点记忆官方来源**——同步时只保存播放列表内视频，写入 `biliplaylist:progress`（恢复用）+ `biliplaylist:history`（本地永久备份，含视频名/UP名/分P/断点/观看时间）
+- 同步触发：视频页加载自动前 2 页（静默）+ 侧边栏「历史」按钮深翻页（30 页）
+- ⚠️ 待实测：登录态、翻页深度上限（B 站服务端保留的历史条数）、`cursor.max` 语义
+- 旧 video 元素轮询方案已停用，备份于分支 `backup/old-progress-video-element`
+
 ---
 
 ## 2. 页面结构（选择器）
@@ -46,7 +55,7 @@
 - 分P连播：优先点击页面分P列表（选集）下一分P（选择器候选见 `player.js clickNextPart`，待实测），兜底整页 `?p=N+1`
 - 分P总数来源（优先级）：① 顶层写入的 `biliplaylist:currentVideo.pages`（打开视频时若列表项缺分P数则调 view 接口补全并缓存）② 分P列表 DOM（待实测）③ null（按已播完处理）
 - 原 `player.bilibili.com` iframe 方案保留为兼容分支（manifest matches 仍含该域）
-- **进度记忆（断点）健壮性（v0.1 加固）**：适配层在 `player.bilibili.com` 或**任何含 `<video>` 的子 frame** 运行；iframe URL 无 `bvid` 参数时从顶层 `currentVideo` 兜底；每 5s 节流保存 + `pagehide`/`visibilitychange(hidden)` 强制保存；恢复阈值**看过 5 秒以上**即 seek（`loadedmetadata`/`loadeddata` 双时机，留 10s 尾）。**待实测确认**：是否出现日志 `player 适配已绑定 bvid=...`、`进度保存成功`、`已恢复进度`
+- **进度记忆（断点，2025 切换官方方案）**：断点来源为**官方观看历史接口**（§1.4），同步进 `biliplaylist:progress`；打开视频时 seek 恢复（看过 5 秒以上即恢复，留 10s 尾）；旧 video 元素轮询保存已停用（备份分支 `backup/old-progress-video-element`）
 - "网页全屏"自动恢复（已实现，尽力而为）：跳转 URL 携带 `playerMode=web-fullscreen` → 顶层写 `biliplaylist:pendingWebFs` 标记 → iframe 加载后尝试点击网页全屏按钮（候选选择器见 `player.js pickWebFullscreenButton`）；未命中会打印 warn 日志，把实际 DOM 记录到本文件
 
 ### 2.4 右下角热区按钮簇（我们的 UI）
@@ -69,8 +78,9 @@
 ## 3. 待验证清单（按优先级）
 
 - [ ] `chrome.scripting` MAIN world fetch 桥在真实页面上带 cookie 成功（核心依赖）
+- [ ] 官方观看历史接口：登录态、`cursor.max` 翻页、服务端保留深度（2025 新增）
 - [ ] 空间页卡片选择器与数据提取（bvid/标题/发布时间）
-- [ ] player iframe 的 video 元素与分P参数名
+- [x] ~~player iframe 的 video 元素与分P参数名~~ → 2025 实测：播放器内嵌主页面（§2.3）
 - [ ] 分P总数选择器（`.list-box .list-item` 等）
 - [ ] 网页全屏按钮选择器：已实现候选列表（`pickWebFullscreenButton`），需实测确认命中并把实际选择器记录到本文档
 - [ ] `chrome.windows.update({state:'fullscreen'})` 无手势生效

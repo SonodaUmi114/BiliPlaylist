@@ -185,11 +185,20 @@ var BiliApi = (function () {
     }
   }
 
+  // 官方观看历史（分页游标：max 为上一页返回的 cursor.max，首屏省略）
+  // 需登录；条目含 title / author_name / bvid / progress(断点秒) / duration / history.{page,part,business,view_at}
+  async function fetchHistory(max, ps) {
+    const params = { ps: ps || 30 };
+    if (max) params.max = max;
+    return apiFetchJson('https://api.bilibili.com/x/web-interface/history/cursor', params);
+  }
+
   return {
     apiFetchJson,
     wbiSign,
     fetchView,
     fetchSpaceVideos,
+    fetchHistory,
     md5
   };
 })();
