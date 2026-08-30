@@ -130,14 +130,15 @@ var BiliPlayer = (function () {
   }
 
   // —— 进度恢复（>30s 且留出结尾 30s 才恢复，避免干扰重看） ——
+  const MIN_RESUME = 5;   // 看过 5 秒以上就恢复断点（用户要求精确续播）
   async function restoreProgress() {
     try {
       const progress = await BiliStorage.getProgress();
       const p = progress[bvid];
-      if (!p || p.part !== part || !(p.time > 30)) return;
+      if (!p || p.part !== part || !(p.time > MIN_RESUME)) return;
       const seek = () => {
         try {
-          if (video.duration > 60 && p.time < video.duration - 30) {
+          if (video.duration > 10 && p.time < video.duration - 10) {
             video.currentTime = p.time;
             console.log('[BiliPlaylist] 已恢复进度 bvid=' + bvid + ' p=' + part + ' 到 ' + p.time + 's');
           }

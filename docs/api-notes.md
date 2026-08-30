@@ -46,7 +46,7 @@
 - 分P列表 DOM（`getTotalParts` 用）：`.list-box .list-item` / `.video-parts-list .list-item` 等候选：⚠️ 待实测
 - 分P连播方案（已实现）：iframe 播完 → 自身刷新 `?p=N+1`（只刷新播放器 iframe，顶层页面不刷新，满足"不刷新模式"）；`p` / `page` 两个参数名都会设置以兼容
 - 分P总数来源（优先级）：① 顶层写入的 `biliplaylist:currentVideo.pages`（打开视频时若列表项缺分P数则调 view 接口补全并缓存）② 播放器分P列表 DOM（待实测）③ null（按已播完处理）
-- **进度记忆（断点）健壮性（v0.1 加固）**：适配层在 `player.bilibili.com` 或**任何含 `<video>` 的子 frame** 运行；iframe URL 无 `bvid` 参数时从顶层 `currentVideo` 兜底；每 5s 节流保存 + `pagehide`/`visibilitychange(hidden)` 强制保存；恢复在 `loadedmetadata`/`loadeddata` 双时机 seek（>30s 且留 30s 尾）。**待实测确认**：是否出现日志 `player 适配已绑定 bvid=...`、`进度保存成功`、`已恢复进度`
+- **进度记忆（断点）健壮性（v0.1 加固）**：适配层在 `player.bilibili.com` 或**任何含 `<video>` 的子 frame** 运行；iframe URL 无 `bvid` 参数时从顶层 `currentVideo` 兜底；每 5s 节流保存 + `pagehide`/`visibilitychange(hidden)` 强制保存；恢复阈值**看过 5 秒以上**即 seek（`loadedmetadata`/`loadeddata` 双时机，留 10s 尾）。**待实测确认**：是否出现日志 `player 适配已绑定 bvid=...`、`进度保存成功`、`已恢复进度`
 - "网页全屏"自动恢复（已实现，尽力而为）：跳转 URL 携带 `playerMode=web-fullscreen` → 顶层写 `biliplaylist:pendingWebFs` 标记 → iframe 加载后尝试点击网页全屏按钮（候选选择器见 `player.js pickWebFullscreenButton`）；未命中会打印 warn 日志，把实际 DOM 记录到本文件
 
 ### 2.4 右下角热区按钮簇（我们的 UI）
