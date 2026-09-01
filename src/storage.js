@@ -34,6 +34,18 @@ var BiliStorage = (function () {
     await set(P + 'list', { version: 1, items: items || [] });
   }
 
+  // —— 分组元数据（文件夹） ——
+  // group: { id, name, color, collapsed }
+  // 注意：组成员关系不存这里，而是通过 list 各 item 上的 groupId 表示（undefined = 未分组）
+  async function getGroups() {
+    const data = await get(P + 'groups', { version: 1, groups: [] });
+    return data && Array.isArray(data.groups) ? data.groups : [];
+  }
+
+  async function saveGroups(groups) {
+    await set(P + 'groups', { version: 1, groups: groups || [] });
+  }
+
   // —— 播放进度 ——
   // progress: { [bvid]: { part, time, done, updatedAt } }
   async function getProgress() {
@@ -86,6 +98,8 @@ var BiliStorage = (function () {
   return {
     getList,
     saveList,
+    getGroups,
+    saveGroups,
     getProgress,
     saveProgress,
     getPlayerMode,

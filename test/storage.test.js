@@ -74,6 +74,12 @@ function assert(name, cond) {
   const hist = await S.getHistory();
   assert('saveHistory/getHistory 往返', hist.length === 1 && hist[0].time === 100 && hist[0].viewAt === 1700000000);
 
+  console.log('== 分组元数据 ==');
+  assert('无数据时 getGroups 返回 []', Array.isArray(await S.getGroups()) && (await S.getGroups()).length === 0);
+  await S.saveGroups([{ id: 'g1', name: '分组1', color: '#EAF3FF', collapsed: true }]);
+  const grps = await S.getGroups();
+  assert('saveGroups/getGroups 往返', grps.length === 1 && grps[0].id === 'g1' && grps[0].collapsed === true);
+
   console.log('== key 前缀 ==');
   assert('所有 key 使用 biliplaylist: 前缀', Object.keys(store).length > 0 && Object.keys(store).every((k) => k.indexOf('biliplaylist:') === 0));
 
