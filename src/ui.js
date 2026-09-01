@@ -468,8 +468,9 @@ var BiliUI = (function () {
         const selCountInGrp = sortMode ? members.filter((m) => biliSel.has(m.bvid)).length : 0;
         const someSel = selCountInGrp > 0;
         const allSel = selCountInGrp === members.length && members.length > 0;
-        listEl.appendChild(buildFolderHead(grp, members[0], members.length, progress, allSel, someSel));
-        if (!grp.collapsed) {
+        const collapsed = grp.collapsed !== false; // 缺省视为收起
+        listEl.appendChild(buildFolderHead(grp, members[0], members.length, progress, allSel, someSel, collapsed));
+        if (!collapsed) {
           for (let k = 0; k < members.length; k++) {
             listEl.appendChild(buildItem(items[i + k], i + k, progress, true));
           }
@@ -571,9 +572,9 @@ var BiliUI = (function () {
   }
 
   // 渲染文件夹标签（组头）：勾选指示 + 名字 + 成员数 + 收起/展开 + 收起时首条摘要
-  function buildFolderHead(grp, firstItem, count, progress, allSel, someSel) {
+  function buildFolderHead(grp, firstItem, count, progress, allSel, someSel, collapsed) {
     const li = document.createElement('li');
-    const cls = 'folder-head' + (grp.collapsed ? ' collapsed' : '') +
+    const cls = 'folder-head' + (collapsed ? ' collapsed' : '') +
       (allSel ? ' selected' : (someSel ? ' partial' : ''));
     li.className = cls;
     li.dataset.gid = grp.id;
@@ -594,7 +595,7 @@ var BiliUI = (function () {
           '<button class="fc-rename" title="重命名">✎</button>' +
         '</span>' +
       '</div>' +
-      (grp.collapsed ? '<div class="folder-summary">' + summary + '</div>' : '');
+      (collapsed ? '<div class="folder-summary">' + summary + '</div>' : '');
 
     const nameEl = li.querySelector('.folder-name');
     const renameBtn = li.querySelector('.fc-rename');
@@ -603,7 +604,7 @@ var BiliUI = (function () {
       e.stopPropagation();
       if (e.target.closest('.fc-rename')) return;
       if (e.target.closest('.chev')) { toggleFolder(grp.id); return; }
-      if (sortMode) { selectGroupMembers(grp.id); return; }
+      if (sortMode) { toggleGroupSelection(grp.id); return; }
       toggleFolder(grp.id);
     });
     // 拖拽整组（仅排序模式可拖动改变位置）
@@ -1449,9 +1450,14 @@ var BiliUI = (function () {
     renderList();
   }
 
-  function selectGroupMembers(gid) {
-    biliSel.clear();
-    currentItems.forEach((it) => { if ((it.groupId || null) === gid) biliSel.add(it.bvid); });
+  // 点击组头：若该组已全选则取消全选，否则全选该组（可来回勾选/取消）
+  function toggleGroupSelection(gid) {
+    const members = currentItems.filter((it) => (it.groupId || null) === gid);
+    const allSelected = members.length > 0 && members.every((m) => biliSel.has(m.bvid));
+    for (const m of members) {
+      if (allSelected) biliSel.delete(m.bvid);
+      else biliSel.add(m.bvid);
+    }
     anchorIndex = -1;
     applySelectionUI();
     updateSortCount();
