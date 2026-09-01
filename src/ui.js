@@ -607,6 +607,7 @@ var BiliUI = (function () {
         '<span class="folder-name">' + escapeHtml(grp.name) + '</span>' +
         '<span class="folder-count">' + count + ' 个</span>' +
         '<span class="folder-tools">' +
+          '<button class="fc-play" title="播放组内第一个视频">▶</button>' +
           '<button class="fc-rename" title="重命名">✎</button>' +
         '</span>' +
       '</div>' +
@@ -614,10 +615,16 @@ var BiliUI = (function () {
 
     const nameEl = li.querySelector('.folder-name');
     const renameBtn = li.querySelector('.fc-rename');
+    const playBtn = li.querySelector('.fc-play');
+    // 播放：打开组内第一个视频（新标签页、从断点续播，与点击该视频完全一致）
+    playBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      jumpToVideo(firstItem.bvid);
+    });
     renameBtn.addEventListener('click', (e) => { e.stopPropagation(); startRenameFolder(grp.id, nameEl); });
     li.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (e.target.closest('.fc-rename')) return;
+      if (e.target.closest('.fc-rename') || e.target.closest('.fc-play')) return;
       if (e.target.closest('.chev')) { toggleFolder(grp.id); return; }
       if (sortMode) { toggleGroupSelection(grp.id); return; }
       toggleFolder(grp.id);
