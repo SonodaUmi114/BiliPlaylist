@@ -1202,6 +1202,28 @@ var BiliUI = (function () {
     for (const li of listEl.querySelectorAll('.item')) {
       li.classList.toggle('selected', biliSel.has(li.dataset.bvid));
     }
+    syncFolderHeadSel();
+  }
+
+  // 选择变更时同步更新各组头的勾选态（全部选中 ✓ 高亮 / 部分选中 · 圆点 / 未选中）
+  function syncFolderHeadSel() {
+    for (const head of listEl.querySelectorAll('.folder-head')) {
+      const gid = head.dataset.gid;
+      let cnt = 0;
+      let total = 0;
+      if (sortMode && gid) {
+        for (const it of currentItems) {
+          if ((it.groupId || null) === gid) {
+            total++;
+            if (biliSel.has(it.bvid)) cnt++;
+          }
+        }
+      }
+      const all = total > 0 && cnt === total;
+      const some = cnt > 0;
+      head.classList.toggle('selected', all);
+      head.classList.toggle('partial', some && !all);
+    }
   }
 
   function updateSortCount() {
