@@ -40,12 +40,9 @@ var BiliUI = (function () {
   let dropAfter = false;        // 落点是否位于目标条目之后
 
   // 「分组/文件夹」状态
-  // 浅色色板：分组自动分配 + 可手动改色（不能太鲜艳）
-  const GROUP_COLORS = ['#EAF3FF', '#E8F5EC', '#FFF6E0', '#F2ECFF', '#E0F5F7', '#FCEFF2', '#EFF4E8', '#FDF0E4', '#ECF0FF', '#EAF0F6'];
   let currentItems = [];        // 最近一次渲染的列表（含折叠组里隐藏的成员），供 index/范围计算使用
   let dragFolderId = null;      // 正在拖拽的文件夹 id（拖动整个组）
   let dropOnFolder = null;      // 鼠标悬停在某个文件夹标签上（拖进该组）
-  let colorPopEl = null;        // 颜色选择弹层（shadow root 内）
   let renamedInput = null;      // 正在重命名的输入框
 
   // 空间页多选状态
@@ -191,7 +188,19 @@ var BiliUI = (function () {
     .folder-row { display: flex; align-items: center; gap: 6px; }
     .folder-head .chev { width: 14px; text-align: center; color: #9499a0; font-size: 11px; flex: none; transition: transform .15s; }
     .folder-head.collapsed .chev { transform: rotate(-90deg); }
-    .folder-swatch { width: 14px; height: 14px; border-radius: 4px; flex: none; cursor: pointer; border: 1px solid #d8dbe0; }
+    .folder-head .folder-check {
+      width: 16px; height: 16px; border: 2px solid #c6cbd1; border-radius: 4px;
+      flex: none; display: none; align-items: center; justify-content: center;
+      font-size: 11px; color: #fff; background: #fff;
+    }
+    .folder-head .folder-check::before { content: '·'; opacity: 0; font-weight: 700; }
+    .folder-head .folder-check::after { content: '✓'; opacity: 0; }
+    .sorting .folder-head .folder-check { display: flex; }
+    .folder-head.selected { background: #eef7fd; }
+    .folder-head.selected .folder-check { background: #00aeec; border-color: #00aeec; }
+    .folder-head.selected .folder-check::after { opacity: 1; }
+    .folder-head.partial .folder-check { border-color: #00aeec; background: #fff; }
+    .folder-head.partial .folder-check::before { opacity: 1; }
     .folder-name { font-size: 13px; font-weight: 600; color: #18191c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .folder-rename-input {
       font-size: 13px; font-weight: 600; color: #18191c; border: 1px solid #00aeec; border-radius: 4px;
@@ -203,15 +212,7 @@ var BiliUI = (function () {
     .folder-tools button:hover { color: #18191c; }
     .folder-summary { display: flex; align-items: center; gap: 6px; padding: 4px 8px 2px 20px; font-size: 11px; color: #9499a0; }
     .folder-summary .fs-t { color: #61666d; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .item.grouped { margin-left: 24px; position: relative; }
-    .item.grouped::before { content: ''; position: absolute; left: 10px; top: 10px; bottom: 10px; width: 2px; background: #e3e6ea; border-radius: 1px; }
-    .color-pop {
-      position: fixed; z-index: 2147483648; background: #fff; border: 1px solid #e3e5e7; border-radius: 8px;
-      box-shadow: 0 4px 16px rgba(0,0,0,.14); padding: 8px; display: flex; flex-wrap: wrap; gap: 6px; width: 132px;
-    }
-    .color-pop .csw { width: 18px; height: 18px; border-radius: 4px; cursor: pointer; border: 1px solid #e3e5e7; }
-    .color-pop .csw:hover { transform: scale(1.15); }
-    .color-pop .csw.auto { display: flex; align-items: center; justify-content: center; color: #9499a0; font-size: 11px; text-align: center; border: 1px dashed #b8bdc4; }
+    .item.grouped { margin-left: 24px; }
   `;
 
   // 空间页卡片多选样式（注入页面 DOM，前缀类名避免冲突）
@@ -443,7 +444,6 @@ var BiliUI = (function () {
     const progress = await BiliStorage.getProgress();
     const groups = await BiliStorage.getGroups();
     const gmap = new Map(groups.map((g) => [g.id, g]));
-    closeColorPop();
     renamedInput = null;
     // 清理排序选中集合中已不在列表里的 bvid（如删除后），保持计数准确
     const present = new Set(items.map((it) => it.bvid));
@@ -465,7 +465,10 @@ var BiliUI = (function () {
         const members = [];
         let j = i;
         while (j < n && (items[j].groupId || null) === gid) { members.push(items[j]); j++; }
-        listEl.appendChild(buildFolderHead(grp, members[0], members.length, progress));
+        const selCountInGrp = sortMode ? members.filter((m) => biliSel.has(m.bvid)).length : 0;
+        const someSel = selCountInGrp > 0;
+        const allSel = selCountInGrp === members.length && members.length > 0;
+        listEl.appendChild(buildFolderHead(grp, members[0], members.length, progress, allSel, someSel));
         if (!grp.collapsed) {
           for (let k = 0; k < members.length; k++) {
             listEl.appendChild(buildItem(items[i + k], i + k, progress, true));
@@ -567,10 +570,12 @@ var BiliUI = (function () {
     return li;
   }
 
-  // 渲染文件夹标签（组头）：色块 + 名字 + 成员数 + 收起/展开 + 收起时首条摘要
-  function buildFolderHead(grp, firstItem, count, progress) {
+  // 渲染文件夹标签（组头）：勾选指示 + 名字 + 成员数 + 收起/展开 + 收起时首条摘要
+  function buildFolderHead(grp, firstItem, count, progress, allSel, someSel) {
     const li = document.createElement('li');
-    li.className = 'folder-head' + (grp.collapsed ? ' collapsed' : '');
+    const cls = 'folder-head' + (grp.collapsed ? ' collapsed' : '') +
+      (allSel ? ' selected' : (someSel ? ' partial' : ''));
+    li.className = cls;
     li.dataset.gid = grp.id;
     const p = progress[firstItem.bvid] || {};
     const pages = firstItem.pages || '?';
@@ -581,8 +586,8 @@ var BiliUI = (function () {
       '<span>· ' + fmtTime(time) + (done ? ' ✓已看完' : '') + '</span>';
     li.innerHTML =
       '<div class="folder-row">' +
+        '<span class="folder-check"></span>' +
         '<span class="chev">▶</span>' +
-        '<span class="folder-swatch" style="background:' + grp.color + '" title="点击更换颜色"></span>' +
         '<span class="folder-name">' + escapeHtml(grp.name) + '</span>' +
         '<span class="folder-count">' + count + ' 个</span>' +
         '<span class="folder-tools">' +
@@ -591,14 +596,12 @@ var BiliUI = (function () {
       '</div>' +
       (grp.collapsed ? '<div class="folder-summary">' + summary + '</div>' : '');
 
-    const swatch = li.querySelector('.folder-swatch');
     const nameEl = li.querySelector('.folder-name');
     const renameBtn = li.querySelector('.fc-rename');
-    swatch.addEventListener('click', (e) => { e.stopPropagation(); openColorPop(grp.id, swatch); });
     renameBtn.addEventListener('click', (e) => { e.stopPropagation(); startRenameFolder(grp.id, nameEl); });
     li.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (e.target.closest('.fc-rename') || e.target.closest('.folder-swatch')) return;
+      if (e.target.closest('.fc-rename')) return;
       if (e.target.closest('.chev')) { toggleFolder(grp.id); return; }
       if (sortMode) { selectGroupMembers(grp.id); return; }
       toggleFolder(grp.id);
@@ -1371,11 +1374,6 @@ var BiliUI = (function () {
     if (valid.length !== groups.length) await BiliStorage.saveGroups(valid);
   }
 
-  // —— 自动分配一个浅色 ——
-  function nextGroupColor(groups) {
-    return GROUP_COLORS[groups.length % GROUP_COLORS.length];
-  }
-
   // —— 成组：把选中视频归为新文件夹（允许重新成组；原组抽空则删） ——
   async function groupSelected() {
     const selCount = currentItems.filter((it) => biliSel.has(it.bvid)).length;
@@ -1386,8 +1384,7 @@ var BiliUI = (function () {
     const selSet = new Set(biliSel);
     const gid = 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     const name = '分组' + (groups.length + 1);
-    const color = nextGroupColor(groups);
-    groups.push({ id: gid, name, color, collapsed: true });
+    groups.push({ id: gid, name, collapsed: true });
     const selItems = list.filter((it) => selSet.has(it.bvid));
     const firstSelIdx = list.findIndex((it) => selSet.has(it.bvid));
     selItems.forEach((it) => { it.groupId = gid; });
@@ -1463,58 +1460,6 @@ var BiliUI = (function () {
     renamedInput = input;
     input.focus();
     input.select();
-  }
-
-  async function openColorPop(gid, swatch) {
-    closeColorPop();
-    const pop = document.createElement('div');
-    pop.className = 'color-pop';
-    for (const color of GROUP_COLORS) {
-      const s = document.createElement('span');
-      s.className = 'csw';
-      s.style.background = color;
-      s.title = color;
-      s.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const groups = await BiliStorage.getGroups();
-        const g = groups.find((x) => x.id === gid);
-        if (g) { g.color = color; await BiliStorage.saveGroups(groups); }
-        closeColorPop();
-        renderList();
-      });
-      pop.appendChild(s);
-    }
-    const auto = document.createElement('span');
-    auto.className = 'csw auto';
-    auto.textContent = 'A';
-    auto.title = '重置为自动配色';
-    auto.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const groups = await BiliStorage.getGroups();
-      const g = groups.find((x) => x.id === gid);
-      if (g) { g.color = nextGroupColor(groups); await BiliStorage.saveGroups(groups); }
-      closeColorPop();
-      renderList();
-    });
-    pop.appendChild(auto);
-    const r = swatch.getBoundingClientRect();
-    pop.style.left = Math.max(0, (r.left + r.width + 4)) + 'px';
-    pop.style.top = r.top + 'px';
-    root.appendChild(pop);
-    colorPopEl = pop;
-    document.addEventListener('mousedown', closeOnOutside);
-  }
-
-  function closeOnOutside(e) {
-    if (!colorPopEl) return;
-    const path = (e.composedPath && e.composedPath()) || [];
-    if (path.indexOf(colorPopEl) === -1) closeColorPop();
-  }
-
-  function closeColorPop() {
-    if (colorPopEl && colorPopEl.parentNode) colorPopEl.parentNode.removeChild(colorPopEl);
-    colorPopEl = null;
-    document.removeEventListener('mousedown', closeOnOutside);
   }
 
   // —— 自动排序：组内排、组间不排（选中项按所属组分桶，各自组内按日期原位重排） ——
