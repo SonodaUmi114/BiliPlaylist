@@ -295,7 +295,7 @@ var BiliUI = (function () {
   }
 
   // ---------- 初始化（顶层 frame 调用） ----------
-  function initTop() {
+  async function initTop() {
     const u = new URL(location.href);
     isVideoPage = u.hostname === 'www.bilibili.com' && /^\/video\//.test(u.pathname);
     isSpacePage = u.hostname === 'space.bilibili.com' &&
@@ -307,6 +307,8 @@ var BiliUI = (function () {
     initFab();
     initModes();
     updateSideButtons();
+    // 默认收起：每次加载页面时把各分组重置为收起（手动展开状态不跨刷新保持）
+    await resetGroupsCollapsed();
     renderList();
     initStorageSync();
     initSpaWatcher();
@@ -314,6 +316,19 @@ var BiliUI = (function () {
     if (isVideoPage || isSpacePage) {
       setTimeout(() => maybeAutoSyncHistory(), 3000);
     }
+  }
+
+  // 页面加载时把所有分组重置为收起（默认收起）
+  async function resetGroupsCollapsed() {
+    try {
+      const groups = await BiliStorage.getGroups();
+      if (!groups.length) return;
+      let changed = false;
+      for (const g of groups) {
+        if (g.collapsed !== true) { g.collapsed = true; changed = true; }
+      }
+      if (changed) await BiliStorage.saveGroups(groups);
+    } catch (e) { /* 忽略 */ }
   }
 
   // ---------- Shadow DOM 骨架 ----------
