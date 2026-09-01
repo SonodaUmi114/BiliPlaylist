@@ -505,7 +505,8 @@ var BiliUI = (function () {
     const pages = it.pages || '?';
     const part = p.part || 1;
     const time = p.time || 0;
-    const done = !!p.done;
+    // 仅当确实看到最后一分P才显示已看完（避免误判，如 1/7 却被标成已看完）
+    const done = !!(p.done && (typeof pages === 'number' ? part >= pages : true));
     const current = isVideoPage && it.bvid === currentBvid;
     const selected = sortMode && biliSel.has(it.bvid);
     const li = document.createElement('li');
@@ -598,7 +599,8 @@ var BiliUI = (function () {
     const pages = firstItem.pages || '?';
     const part = p.part || 1;
     const time = p.time || 0;
-    const done = !!p.done;
+    // 仅当确实看到最后一分P才显示已看完（避免误判）
+    const done = !!(p.done && (typeof pages === 'number' ? part >= pages : true));
     const summary = '<span class="fs-t">' + escapeHtml(firstItem.title || firstItem.bvid) + '</span>' +
       '<span>' + part + '/' + pages + '</span>' +
       '<span>· ' + fmtTime(time) + (done ? ' ✓已看完' : '') + '</span>';

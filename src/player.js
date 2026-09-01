@@ -102,6 +102,16 @@ var BiliPlayer = (function () {
         video.currentTime = p.time;
         console.log('[BiliPlaylist] B站未恢复断点，本地兜底 ' + p.time + 's');
       }
+      // 非最后一分P → 清除之前误判的「已看完」，避免显示成已看完/触发错误跳转
+      progress[bvid] = progress[bvid] || p;
+      if (progress[bvid].done) {
+        const total = await getTotalParts();
+        if (total && part < total) {
+          progress[bvid].done = false;
+          progress[bvid].updatedAt = Date.now();
+          await BiliStorage.saveProgress(progress);
+        }
+      }
     } catch (e) { /* 忽略 */ }
   }
 
@@ -128,7 +138,7 @@ var BiliPlayer = (function () {
       const progress = await BiliStorage.getProgress();
       const prev = progress[bvid] || {};
       if (part !== (prev.part || 1)) {
-        progress[bvid] = { part, time, updatedAt: Date.now(), source: 'part' };
+        progress[bvid] = { part, time, done: false, updatedAt: Date.now(), source: 'part' };
         await BiliStorage.saveProgress(progress);
       }
     } catch (e) { /* 忽略 */ }
@@ -233,7 +243,7 @@ var BiliPlayer = (function () {
       const next = part + 1;
       if (clickNextPart(next)) {
         part = next;
-        await saveCurrentPart(); // 立即记录已切换到的新分P，避免断点卡在旧分P
+        await saveCurrentPart(); // 立即记录已切换到的新分P，并清除误判的 done
         return;
       }
       const u = new URL(location.href);
@@ -242,7 +252,18 @@ var BiliPlayer = (function () {
       location.href = u.toString();
       return;
     }
-    // 2) 全部分P播完 → 标记完成 + 通知跳转列表下一个视频
+    // 2) 若分P总数未知：不能确定已播完，保守尝试下一分P；点不到则不判完成、不跳转下一视频（避免误跳/误标已看完）
+    if (!total) {
+      const next = part + 1;
+      if (clickNextPart(next)) {
+        part = next;
+        await saveCurrentPart();
+        return;
+      }
+      console.warn('[BiliPlaylist] 无法确定分P总数且未找到下一分P，不自动跳转下一视频（避免误判）');
+      return;
+    }
+    // 3) 分P总数已知且已到最后一P → 标记完成 + 通知跳转列表下一个视频
     console.log('[BiliPlaylist] bvid=' + bvid + ' 全部播完，通知跳转下一视频');
     try {
       const progress = await BiliStorage.getProgress();
@@ -283,12 +304,16 @@ var BiliPlayer = (function () {
     return false;
   }
 
-  // 分P总数：优先用顶层写入的 currentVideo.pages（加入列表后打开视频时经 view 接口获得，可靠）；
-  // 兜底读播放器分P列表 DOM（选择器待实测，见 docs/api-notes.md）；都拿不到返回 null
+  // 分P总数：优先顶层写入的 currentVideo.pages；其次播放列表 item 缓存的 pages；再兜底读分P列表 DOM
   async function getTotalParts() {
     try {
       const cv = await BiliStorage.getCurrentVideo();
       if (cv && cv.bvid === bvid && cv.pages) return cv.pages;
+    } catch (e) { /* 忽略 */ }
+    try {
+      const list = await BiliStorage.getList();
+      const it = list.find((x) => x.bvid === bvid);
+      if (it && it.pages) return it.pages;
     } catch (e) { /* 忽略 */ }
     const candidates = [
       '.list-box .list-item',
