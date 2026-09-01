@@ -91,7 +91,8 @@ async function captureOfficialProgress(bvid) {
 
     const progress = await BiliStorage.getProgress();
     const prev = progress[bvid];
-    if (!prev || time > (prev.time || 0) || !(prev.updatedAt || 0)) {
+    // 分P变化则保存（避免新分P的 time 小于旧分P而跳过）；同分P才按时间更靠后保存
+    if (!prev || part !== (prev.part || 1) || time > (prev.time || 0) || !(prev.updatedAt || 0)) {
       progress[bvid] = { part, time, updatedAt: Date.now() };
       await BiliStorage.saveProgress(progress);
     }

@@ -503,6 +503,7 @@ var BiliUI = (function () {
   function buildItem(it, idx, progress, grouped) {
     const p = progress[it.bvid] || {};
     const pages = it.pages || '?';
+    const part = p.part || 1;
     const time = p.time || 0;
     const done = !!p.done;
     const current = isVideoPage && it.bvid === currentBvid;
@@ -517,7 +518,7 @@ var BiliUI = (function () {
       '<div class="item-main">' +
         '<div class="title">' + escapeHtml(it.title || it.bvid) + '</div>' +
         (it.author ? '<div class="author">' + escapeHtml(it.author) + '</div>' : '') +
-        '<div class="meta">1/' + pages + ' · ' + fmtTime(time) +
+        '<div class="meta">' + part + '/' + pages + ' · ' + fmtTime(time) +
           (done ? ' · <span class="done">✓ 已看完</span>' : '') +
         '</div>' +
       '</div>' +
@@ -595,10 +596,11 @@ var BiliUI = (function () {
     li.dataset.gid = grp.id;
     const p = progress[firstItem.bvid] || {};
     const pages = firstItem.pages || '?';
+    const part = p.part || 1;
     const time = p.time || 0;
     const done = !!p.done;
     const summary = '<span class="fs-t">' + escapeHtml(firstItem.title || firstItem.bvid) + '</span>' +
-      '<span>1/' + pages + '</span>' +
+      '<span>' + part + '/' + pages + '</span>' +
       '<span>· ' + fmtTime(time) + (done ? ' ✓已看完' : '') + '</span>';
     li.innerHTML =
       '<div class="folder-row">' +
@@ -702,9 +704,16 @@ var BiliUI = (function () {
     renderList();
   }
 
-  function jumpToVideo(bvid) {
+  async function jumpToVideo(bvid) {
+    // 从断点分P开始：读本地保存的 part（默认第 1P）；已看完(done)则重播第 1P；B 站播放器在该分P内恢复「上次看到」
+    let part = 1;
+    try {
+      const progress = await BiliStorage.getProgress();
+      const p = progress[bvid];
+      if (p && !p.done && p.part > 0) part = p.part;
+    } catch (e) { /* 忽略 */ }
     const url = 'https://www.bilibili.com/video/' + bvid +
-      '?p=1&fromPlaylist=1&playerMode=' + modeState;
+      '?p=' + part + '&fromPlaylist=1&playerMode=' + modeState;
     // 侧边栏手动播放：新标签页打开，不替换当前页
     chrome.runtime.sendMessage({ type: 'open-tab', url }).catch(() => {
       try { window.open(url, '_blank'); } catch (e) { /* 忽略 */ }

@@ -92,19 +92,20 @@ var BiliPlayer = (function () {
       const cur = Math.floor(video.currentTime || 0);
       const progress = await BiliStorage.getProgress();
       const p = progress[bvid] || {};
-      if (cur > 5 && cur >= (p.time || 0)) {
+      // 分P变化时必须保存（新分P时间往往从 0 开始，比旧分P的 time 小）；同分P才按时间更靠后保存
+      if (cur > 5 && (part !== (p.part || 1) || cur >= (p.time || 0))) {
         progress[bvid] = { part, time: cur, updatedAt: Date.now(), source: 'player' };
         await BiliStorage.saveProgress(progress);
       }
-      // B 站播放器未恢复（5s 后仍在开头）且本地有断点 → 兜底 seek
-      if ((p.time || 0) > 5 && cur < 5 && video.duration > 10 && p.time < video.duration - 10) {
+      // B 站播放器未恢复（5s 后仍在开头）且本地有断点 → 兜底 seek（仅相同分P才应用，避免跨分P串位置）
+      if (p.part === part && (p.time || 0) > 5 && cur < 5 && video.duration > 10 && p.time < video.duration - 10) {
         video.currentTime = p.time;
         console.log('[BiliPlaylist] B站未恢复断点，本地兜底 ' + p.time + 's');
       }
     } catch (e) { /* 忽略 */ }
   }
 
-  // 关闭/切走时保存一次精确位置（不轮询；时间不小于本地已有值才覆盖）
+  // 关闭/切走时保存一次精确位置（不轮询；分P变化则保存，同分P时间不小于本地已有值才覆盖）
   async function saveLocalProgress() {
     if (!video || !bvid) return;
     try {
@@ -112,8 +113,22 @@ var BiliPlayer = (function () {
       if (!(time > 5)) return;
       const progress = await BiliStorage.getProgress();
       const prev = progress[bvid] || {};
-      if (time >= (prev.time || 0) || !(prev.updatedAt || 0)) {
+      if (part !== (prev.part || 1) || time >= (prev.time || 0) || !(prev.updatedAt || 0)) {
         progress[bvid] = { part, time, updatedAt: Date.now(), source: 'local' };
+        await BiliStorage.saveProgress(progress);
+      }
+    } catch (e) { /* 忽略 */ }
+  }
+
+  // 记录「已切换到的当前分P」（分P变化时立即写入，使断点不卡在旧分P）
+  async function saveCurrentPart() {
+    if (!bvid) return;
+    try {
+      const time = Math.floor((video && video.currentTime) || 0);
+      const progress = await BiliStorage.getProgress();
+      const prev = progress[bvid] || {};
+      if (part !== (prev.part || 1)) {
+        progress[bvid] = { part, time, updatedAt: Date.now(), source: 'part' };
         await BiliStorage.saveProgress(progress);
       }
     } catch (e) { /* 忽略 */ }
@@ -215,10 +230,10 @@ var BiliPlayer = (function () {
     const total = await getTotalParts();
     if (total && part < total) {
       console.log('[BiliPlaylist] 分P ' + part + '/' + total + ' 结束，切换到下一分P');
-      await saveProgress();
       const next = part + 1;
       if (clickNextPart(next)) {
         part = next;
+        await saveCurrentPart(); // 立即记录已切换到的新分P，避免断点卡在旧分P
         return;
       }
       const u = new URL(location.href);
