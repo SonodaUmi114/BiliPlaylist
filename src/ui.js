@@ -1494,10 +1494,14 @@ var BiliUI = (function () {
       renderList();
     };
     input.addEventListener('click', (e) => e.stopPropagation());
+    // 阻止按键冒泡出阴影树，避免影响 B 站播放器快捷键（如 m 静音）
     input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
       if (e.key === 'Enter') { e.preventDefault(); commit(); }
       else if (e.key === 'Escape') { renamedInput = null; renderList(); }
     });
+    input.addEventListener('keyup', (e) => e.stopPropagation());
+    input.addEventListener('keypress', (e) => e.stopPropagation());
     input.addEventListener('blur', commit);
     nameEl.replaceWith(input);
     renamedInput = input;
