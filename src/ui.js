@@ -28,6 +28,16 @@ var BiliUI = (function () {
   let isSpacePage = false;
   const clusterBtns = [];       // 热区按钮簇（fab + 页面相关按钮）
 
+  // 侧边栏「排序模式」状态：多选 / 分组拖拽 / 按日期自动排序 / 撤销
+  let sortMode = false;         // 是否处于排序（编辑）模式
+  let sortDirection = 'asc';    // 自动排序方向：'asc' | 'desc'
+  let anchorIndex = -1;         // Shift 范围选择的锚点（当前列表 index）
+  let biliSel = new Set();      // 排序模式下选中的视频 bvid 集合
+  const undoStack = [];         // 撤销快照（list items 数组深拷贝，≤20 个）
+  let dropLine = null;          // 分组拖拽时的落点指示线元素
+  let dropAtIdx = -1;           // 落点目标下标（list 中的 index）
+  let dropAfter = false;        // 落点是否位于目标条目之后
+
   // 空间页多选状态
   const sel = { mode: false, map: new Map(), bar: null, button: null, countEl: null, observer: null };
 
@@ -125,6 +135,42 @@ var BiliUI = (function () {
       opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
     }
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    /* —— 排序模式：头部按钮 + 排序工具栏 + 条目勾选 + 落点指示线 —— */
+    .sort-toggle {
+      border: 1px solid #e3e5e7; background: #fff; color: #61666d;
+      width: 26px; height: 24px; border-radius: 6px; cursor: pointer; font-size: 14px; line-height: 1;
+      display: flex; align-items: center; justify-content: center; padding: 0;
+    }
+    .sort-toggle:hover { background: #f5f6f7; }
+    .sort-toggle.on { background: #00aeec; border-color: #00aeec; color: #fff; }
+    .sort-bar {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      padding: 8px 14px; border-bottom: 1px solid #f1f2f3; font-size: 12px; color: #18191c;
+    }
+    .sort-bar .sel-count { color: #61666d; white-space: nowrap; }
+    .sort-bar .sel-count-n { color: #00aeec; font-weight: 600; }
+    .sort-bar button {
+      border: 1px solid #e3e5e7; background: #fff; color: #61666d;
+      font-size: 12px; padding: 2px 8px; border-radius: 10px; cursor: pointer; white-space: nowrap;
+    }
+    .sort-bar button:hover { background: #f5f6f7; }
+    .sort-bar button.primary { background: #00aeec; border-color: #00aeec; color: #fff; }
+    .sort-bar button.primary:hover { background: #00b3f0; }
+    .sort-bar select {
+      border: 1px solid #e3e5e7; background: #fff; color: #61666d;
+      font-size: 11px; padding: 1px 3px; border-radius: 6px; cursor: pointer;
+    }
+    .item .sel-check {
+      width: 16px; height: 16px; border: 2px solid #c6cbd1; border-radius: 4px;
+      flex: none; display: none; align-items: center; justify-content: center;
+      font-size: 11px; color: #fff; background: #fff; margin-top: 2px;
+    }
+    .item .sel-check::after { content: '✓'; opacity: 0; }
+    .sorting .item .sel-check { display: flex; }
+    .item.selected { background: #eef7fd; }
+    .item.selected .sel-check { background: #00aeec; border-color: #00aeec; }
+    .item.selected .sel-check::after { opacity: 1; }
+    .drop-line { height: 2px; background: #00aeec; border-radius: 1px; margin: 0 8px; }
   `;
 
   // 空间页卡片多选样式（注入页面 DOM，前缀类名避免冲突）
@@ -220,9 +266,21 @@ var BiliUI = (function () {
             <option value="web-fullscreen">网页全屏</option>
             <option value="fullscreen">全屏</option>
           </select>
+          <button class="sort-toggle" id="sortToggle" title="排序模式（多选/拖动/自动排序）">⇅</button>
           <button class="refresh-all" id="refreshAll" title="刷新列表 + 同步观看历史（官方断点，本地保存）">↻</button>
           <button class="close" id="close" title="关闭">✕</button>
         </header>
+        <div class="sort-bar" id="sortBar" style="display:none">
+          <span class="sel-count">已选 <b class="sel-count-n" id="sortCountN">0</b> 个</span>
+          <button id="sortSelectAll">全选</button>
+          <button id="sortUndo">撤销</button>
+          <select id="sortDir" title="自动排序方向">
+            <option value="asc">升序↑</option>
+            <option value="desc">倒序↓</option>
+          </select>
+          <button class="primary" id="sortDo">自动排序</button>
+          <button id="sortDone">完成</button>
+        </div>
         <ul class="list" id="list"></ul>
       </aside>
     `;
@@ -238,6 +296,7 @@ var BiliUI = (function () {
       syncHistory({ pages: 5, silent: false });
     });
     root.querySelector('#close').addEventListener('click', () => togglePanel(false));
+    initSortModeControls();
     // 页面级样式（空间页卡片勾选框用）
     if (!document.getElementById('biliplaylist-page-css')) {
       const style = document.createElement('style');
@@ -312,9 +371,13 @@ var BiliUI = (function () {
     if (!root) return;
     const items = await BiliStorage.getList();
     const progress = await BiliStorage.getProgress();
+    // 清理排序选中集合中已不在列表里的 bvid（如删除后），保持计数准确
+    const present = new Set(items.map((it) => it.bvid));
+    for (const b of biliSel) if (!present.has(b)) biliSel.delete(b);
     countEl.textContent = items.length ? items.length + ' 个' : '';
     if (!items.length) {
       listEl.innerHTML = '<div class="empty">播放列表为空<br>视频页右下角点「＋ 加入列表」，<br>或在 UP 主空间右下角点「多选」批量加入</div>';
+      updateSortCount();
       return;
     }
     listEl.innerHTML = '';
@@ -324,11 +387,13 @@ var BiliUI = (function () {
       const time = p.time || 0;
       const done = !!p.done;
       const current = isVideoPage && it.bvid === currentBvid;
+      const selected = sortMode && biliSel.has(it.bvid);
       const li = document.createElement('li');
-      li.className = 'item' + (current ? ' current' : '');
+      li.className = 'item' + (current ? ' current' : '') + (selected ? ' selected' : '');
       li.draggable = true;
       li.dataset.bvid = it.bvid;
       li.innerHTML =
+        '<span class="sel-check"></span>' +
         '<div class="item-main">' +
           '<div class="title">' + escapeHtml(it.title || it.bvid) + '</div>' +
           (it.author ? '<div class="author">' + escapeHtml(it.author) + '</div>' : '') +
@@ -348,28 +413,55 @@ var BiliUI = (function () {
         e.stopPropagation();
         await removeItem(it.bvid);
       });
-      // 拖拽排序
+      // 排序模式：单击条目切换选中（播放/删除按钮已 stopPropagation，不受影响）
+      li.addEventListener('click', (e) => {
+        if (!sortMode) return;
+        if (e.target.closest('.play, .del')) return;
+        handleItemSelect(it.bvid, idx, e);
+      });
+      // 拖拽：排序模式下为「分组移动」；普通模式为「单条移动」
       li.addEventListener('dragstart', (e) => {
+        if (sortMode) {
+          // 拖动未选中项 → 视为仅选中它再移动
+          if (!biliSel.has(it.bvid)) {
+            biliSel.clear();
+            biliSel.add(it.bvid);
+            anchorIndex = idx;
+            applySelectionUI();
+            updateSortCount();
+          }
+        }
         dragIndex = idx;
         isDragging = true;
         li.classList.add('dragging');
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', it.bvid);
       });
-      li.addEventListener('dragover', (e) => { e.preventDefault(); li.classList.add('drag-over'); });
+      li.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        li.classList.add('drag-over');
+        if (sortMode) showDropLine(e, li);
+      });
       li.addEventListener('dragleave', () => li.classList.remove('drag-over'));
       li.addEventListener('drop', async (e) => {
         e.preventDefault();
         li.classList.remove('drag-over');
-        await moveItem(dragIndex, idx);
+        hideDropLine();
+        if (sortMode) {
+          await moveSelectionTo(dropAtIdx, dropAfter);
+        } else {
+          await moveItem(dragIndex, idx);
+        }
       });
       li.addEventListener('dragend', () => {
         li.classList.remove('dragging');
         isDragging = false;
+        hideDropLine();
         renderList();
       });
       listEl.appendChild(li);
     });
+    updateSortCount();
   }
 
   // opts.sort = true（多选批量加入）：全列表按发布时间升序重排（日期早的在前、先播放）
@@ -890,6 +982,192 @@ var BiliUI = (function () {
     if (added > 0) {
       backfillAndResort();
     }
+  }
+
+  // ================= 侧边栏「排序模式」 =================
+  // 排序工具栏控件（全选/撤销/方向/自动排序/完成）+ 头部「排序」按钮
+  function initSortModeControls() {
+    const toggle = root.querySelector('#sortToggle');
+    if (toggle) toggle.addEventListener('click', toggleSortMode);
+    const selectAll = root.querySelector('#sortSelectAll');
+    if (selectAll) selectAll.addEventListener('click', sortSelectAll);
+    const undoBtn = root.querySelector('#sortUndo');
+    if (undoBtn) undoBtn.addEventListener('click', () => undo());
+    const dir = root.querySelector('#sortDir');
+    if (dir) dir.addEventListener('change', () => { sortDirection = dir.value; });
+    const doBtn = root.querySelector('#sortDo');
+    if (doBtn) doBtn.addEventListener('click', () => {
+      const d = root.querySelector('#sortDir');
+      if (d) sortDirection = d.value;
+      autoSortSelected();
+    });
+    const done = root.querySelector('#sortDone');
+    if (done) done.addEventListener('click', toggleSortMode);
+  }
+
+  async function toggleSortMode() {
+    sortMode = !sortMode;
+    const bar = root.querySelector('#sortBar');
+    const t = root.querySelector('#sortToggle');
+    if (sortMode) {
+      biliSel.clear();
+      anchorIndex = -1;
+      if (bar) bar.style.display = '';
+      if (t) t.classList.add('on');
+      panel.classList.add('sorting');
+    } else {
+      biliSel.clear();
+      anchorIndex = -1;
+      hideDropLine();
+      if (bar) bar.style.display = 'none';
+      if (t) t.classList.remove('on');
+      panel.classList.remove('sorting');
+    }
+    renderList();
+  }
+
+  // 当前列表在 DOM 上的 bvid 顺序（与 storage 顺序一致）
+  function currentBvids() {
+    return Array.from(listEl.querySelectorAll('.item')).map((li) => li.dataset.bvid);
+  }
+
+  function applySelectionUI() {
+    for (const li of listEl.querySelectorAll('.item')) {
+      li.classList.toggle('selected', biliSel.has(li.dataset.bvid));
+    }
+  }
+
+  function updateSortCount() {
+    const n = root && root.querySelector('#sortCountN');
+    if (n) n.textContent = String(biliSel.size);
+  }
+
+  // 选中逻辑：单击=仅选中 & 设为锚点；Shift=范围（含两端）；Ctrl/⌘=单独增删
+  function handleItemSelect(bvid, idx, e) {
+    const bvids = currentBvids();
+    const currentIdx = bvids.indexOf(bvid);
+    if (currentIdx < 0) return;
+    if (e.shiftKey && anchorIndex >= 0) {
+      const start = Math.min(anchorIndex, currentIdx);
+      const end = Math.max(anchorIndex, currentIdx);
+      biliSel.clear();
+      for (let i = start; i <= end; i++) biliSel.add(bvids[i]);
+    } else if (e.ctrlKey || e.metaKey) {
+      if (biliSel.has(bvid)) biliSel.delete(bvid);
+      else biliSel.add(bvid);
+      anchorIndex = currentIdx;
+    } else {
+      biliSel.clear();
+      biliSel.add(bvid);
+      anchorIndex = currentIdx;
+    }
+    applySelectionUI();
+    updateSortCount();
+  }
+
+  function sortSelectAll() {
+    const bvids = currentBvids();
+    bvids.forEach((b) => biliSel.add(b));
+    anchorIndex = bvids.length ? 0 : -1;
+    applySelectionUI();
+    updateSortCount();
+  }
+
+  // —— 分组拖拽：落点指示线 ——
+  function showDropLine(e, li) {
+    if (!dropLine) {
+      dropLine = document.createElement('li');
+      dropLine.className = 'drop-line';
+    }
+    const rect = li.getBoundingClientRect();
+    const before = (e.clientY - rect.top) < rect.height / 2;
+    dropAfter = !before;
+    const items = Array.from(listEl.querySelectorAll('.item'));
+    const targetIdx = items.indexOf(li);
+    dropAtIdx = targetIdx < 0 ? items.length : targetIdx;
+    const ref = before ? li : li.nextSibling;
+    if (dropLine.parentNode !== listEl || dropLine.nextSibling !== ref) {
+      listEl.insertBefore(dropLine, ref);
+    }
+  }
+
+  function hideDropLine() {
+    if (dropLine && dropLine.parentNode) dropLine.parentNode.removeChild(dropLine);
+  }
+
+  // —— 分组拖拽：整组按原相对顺序移动到目标位置；未选中项保持相对顺序 ——
+  async function moveSelectionTo(targetIndex, after) {
+    const list = await BiliStorage.getList();
+    const selBvids = new Set(biliSel);
+    const selIdx = [];
+    list.forEach((it, i) => { if (selBvids.has(it.bvid)) selIdx.push(i); });
+    if (!selIdx.length) return;
+    const selIdxSet = new Set(selIdx);
+    const selItems = selIdx.map((i) => list[i]); // 保持原始相对顺序
+    const remaining = list.filter((_, i) => !selIdxSet.has(i));
+    // 插入点：after=false 插到目标条目之前；after=true 插到其后
+    const anchor = targetIndex < 0 ? remaining.length : (after ? targetIndex + 1 : targetIndex);
+    const removedBefore = selIdx.filter((i) => i < anchor).length;
+    let insertAt = Math.max(0, Math.min(anchor - removedBefore, remaining.length));
+    await pushUndo(list);
+    remaining.splice(insertAt, 0, ...selItems);
+    await BiliStorage.saveList(remaining);
+    renderList();
+  }
+
+  // —— 自动排序：选中子集「原位置内重排」；先补全缺失发布日期，未补齐放末尾 ——
+  async function autoSortSelected() {
+    if (!biliSel.size) { showToast('请先选中要排序的视频'); return; }
+    const list = await BiliStorage.getList();
+    const selBvids = new Set(biliSel);
+    const selIdx = [];
+    list.forEach((it, i) => { if (selBvids.has(it.bvid)) selIdx.push(i); });
+    if (!selIdx.length) return;
+    // 先补全选中项缺失的发布日期（只针对选中项，200ms 节流，失败继续）
+    await backfillDatesFor(selIdx, list);
+    // 快照在补全之后、重排之前：撤销只回退顺序，保留已补全的日期
+    await pushUndo(list);
+    const selItems = selIdx.map((i) => list[i]);
+    const sorted = selItems.slice().sort((a, b) => {
+      const pa = a.pubdate || Number.MAX_SAFE_INTEGER;
+      const pb = b.pubdate || Number.MAX_SAFE_INTEGER;
+      return sortDirection === 'asc' ? pa - pb : pb - pa;
+    });
+    // 放回各自原本的 slot，未选中项位置不变
+    selIdx.forEach((slot, k) => { list[slot] = sorted[k]; });
+    await BiliStorage.saveList(list);
+    renderList();
+    showToast('已按发布日期' + (sortDirection === 'asc' ? '升序' : '倒序') + '排序 ' + sorted.length + ' 个视频');
+  }
+
+  // 仅针对选中项补全缺失 pubdate（不复排整表）
+  async function backfillDatesFor(selIdx, list) {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    for (const i of selIdx) {
+      const it = list[i];
+      if (!it || !it.bvid || it.pubdate) continue;
+      try {
+        const v = await BiliApi.fetchView(it.bvid);
+        const pd = v.data && v.data.pubdate;
+        if (pd) it.pubdate = pd;
+      } catch (e) { /* 单个失败继续 */ }
+      await sleep(200);
+    }
+  }
+
+  // —— 撤销：快照栈（排序/分组拖拽前深拷贝列表） ——
+  async function pushUndo(prevItems) {
+    const list = prevItems || await BiliStorage.getList();
+    undoStack.push(JSON.parse(JSON.stringify(list || [])));
+    if (undoStack.length > 20) undoStack.shift();
+  }
+
+  async function undo() {
+    const prev = undoStack.pop();
+    if (!prev) { showToast('没有可撤销的操作'); return; }
+    await BiliStorage.saveList(prev);
+    renderList();
+    showToast('已撤销');
   }
 
   // ---------- 存储同步 ----------
