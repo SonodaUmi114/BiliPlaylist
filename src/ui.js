@@ -910,10 +910,12 @@ var BiliUI = (function () {
             const bvid = (it.history && it.history.bvid) || it.bvid;
             const partIdx = it.history.page || 1;
             const time = Math.floor(it.progress || 0);
-            const viewAt = it.history.view_at || 0;
+            // B 站 view_at 为「秒」，本地 updatedAt 用 Date.now()「毫秒」——统一乘 1000 后比较，否则官方永远显得更旧、永不覆盖（Bug②）
+            const viewAtMs = (it.history.view_at || 0) * 1000;
             const prev = progress[bvid];
-            if (!prev || (viewAt || 0) >= (prev.updatedAt || 0) || time > (prev.time || 0)) {
-              progress[bvid] = { part: partIdx, time, updatedAt: viewAt || Date.now() };
+            // 官方记录比本地新才覆盖（正在看的本地值比 B 站旧记录新时保留本地）
+            if (!prev || viewAtMs >= (prev.updatedAt || 0)) {
+              progress[bvid] = { part: partIdx, time, updatedAt: viewAtMs || Date.now() };
               changed = true;
               updated++;
             }
@@ -1597,13 +1599,57 @@ var BiliUI = (function () {
   // ---------- 存储同步 ----------
   function initStorageSync() {
     let timer = null;
+    let pendingKeys = [];
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local') return;
-      const keys = Object.keys(changes);
-      if (!keys.some((k) => k.indexOf('biliplaylist:') === 0)) return;
+      const keys = Object.keys(changes).filter((k) => k.indexOf('biliplaylist:') === 0);
+      if (!keys.length) return;
+      pendingKeys = pendingKeys.concat(keys);
       clearTimeout(timer);
-      timer = setTimeout(() => refresh(), 300);
+      timer = setTimeout(() => {
+        const ks = pendingKeys;
+        pendingKeys = [];
+        // 仅进度变化 → 轻量原地更新（不清空列表，保持滚动）；含结构/模式变化 → 整表刷新
+        if (ks.every((k) => k === 'biliplaylist:progress')) lightProgressRefresh();
+        else refresh();
+      }, 300);
     });
+  }
+
+  // 仅「播放进度」变化时的轻量刷新：只改条目文本，不重建列表（保持滚动位置）
+  function lightProgressRefresh() {
+    if (isDragging) return;
+    if (!panel.classList.contains('open')) return; // 侧边栏未打开：不做 DOM 更新（保存侧不受限）
+    BiliStorage.getProgress().then((progress) => {
+      if (!progress) return;
+      for (const li of listEl.querySelectorAll('.item[data-bvid]')) {
+        const it = currentItems.find((x) => x.bvid === li.dataset.bvid);
+        const p = progress[li.dataset.bvid];
+        if (!it || !p) continue;
+        const meta = li.querySelector('.meta');
+        if (!meta) continue;
+        const pages = it.pages || '?';
+        const part = p.part || 1;
+        const done = !!(p.done && (typeof pages === 'number' ? part >= pages : true));
+        const txt = part + '/' + pages + ' · ' + fmtTime(p.time || 0) +
+          (done ? ' · <span class="done">✓ 已看完</span>' : '');
+        if (meta.innerHTML !== txt) meta.innerHTML = txt;
+      }
+      // 折叠组头的首条摘要（组内第一个视频正在播放时）
+      for (const head of listEl.querySelectorAll('.folder-head.collapsed[data-gid]')) {
+        const first = currentItems.find((x) => (x.groupId || null) === head.dataset.gid);
+        const p = first && progress[first.bvid];
+        const sum = head.querySelector('.folder-summary');
+        if (!first || !p || !sum) continue;
+        const pages = first.pages || '?';
+        const part = p.part || 1;
+        const done = !!(p.done && (typeof pages === 'number' ? part >= pages : true));
+        const txt = '<span class="fs-t">' + escapeHtml(first.title || first.bvid) + '</span>' +
+          '<span>' + part + '/' + pages + '</span>' +
+          '<span>· ' + fmtTime(p.time || 0) + (done ? ' ✓已看完' : '') + '</span>';
+        if (sum.innerHTML !== txt) sum.innerHTML = txt;
+      }
+    }).catch(() => { /* 忽略 */ });
   }
 
   async function refresh() {

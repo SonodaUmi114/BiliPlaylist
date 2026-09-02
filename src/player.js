@@ -16,6 +16,8 @@ var BiliPlayer = (function () {
   let video = null;
   let lastSave = 0;
   let pollTimer = null;
+  let tickTimer = null;        // 周期保存定时器（连续“边看边存”）
+  let urlWatchTimer = null;    // URL p 分P变化监听
 
   function getParam(name) {
     return new URLSearchParams(location.search).get(name);
@@ -83,6 +85,60 @@ var BiliPlayer = (function () {
     // 5s 后捕获播放器实际位置（含 B 站自身恢复后的位置）做本地备份；
     // 若此时仍停在开头且本地有断点 → 说明 B 站未恢复，本地兜底 seek
     setTimeout(() => captureCurrentPosition(), 5000);
+    startContinuousTracking();
+  }
+
+  // —— 连续跟踪：① 每 10s 存一次当前分P+位置（变了才写）② 监听 URL p= 变化（B 站驱动切集/整页跳转都改 URL） ——
+  function startContinuousTracking() {
+    if (!tickTimer) tickTimer = setInterval(() => { tickSave(); }, 10000);
+    if (!urlWatchTimer) {
+      urlWatchTimer = setInterval(() => { watchUrlPart(); }, 1000);
+      watchUrlPart();
+    }
+  }
+
+  // 把当前分P同步进 URL（history.replaceState 不刷新页面），F5 后扩展仍能按 URL p 恢复
+  function syncUrlPart() {
+    try {
+      const u = new URL(location.href);
+      const cur = u.searchParams.get('p') || u.searchParams.get('page') || '';
+      if (String(cur) !== String(part)) {
+        u.searchParams.set('p', String(part));
+        u.searchParams.set('page', String(part));
+        history.replaceState(history.state, '', u.toString());
+      }
+    } catch (e) { /* 忽略 */ }
+  }
+
+  // 轮询 URL 的 p= ：若 B 站通过 pushState/无刷新方式切换分P，这里能捕捉并更新 part + 保存
+  function watchUrlPart() {
+    if (!bvid) return;
+    try {
+      const pRaw = getParam('p') || getParam('page');
+      const pNow = parseInt(pRaw || '1', 10) || 1;
+      if (pNow !== part) {
+        console.log('[BiliPlaylist] 检测到 URL 分P变化 p=' + pNow + '（原 ' + part + '），记录新分P');
+        part = pNow;
+        saveCurrentPart();
+      }
+    } catch (e) { /* 忽略 */ }
+  }
+
+  // 周期保存（连续“边看边存”）：每 10s 检查，分P 变化或同分P秒数推进 ≥8s 才写库（数值没变不触发）
+  async function tickSave() {
+    if (!video || !bvid) return;
+    try {
+      const cur = Math.floor(video.currentTime || 0);
+      if (!(cur > 5)) return;
+      const progress = await BiliStorage.getProgress();
+      const prev = progress[bvid] || {};
+      const partChanged = part !== (prev.part || 1);
+      const advanced = cur - (prev.time || 0) >= 8;
+      if (partChanged || advanced) {
+        progress[bvid] = { part, time: cur, updatedAt: Date.now(), source: 'tick' };
+        await BiliStorage.saveProgress(progress);
+      }
+    } catch (e) { /* 忽略 */ }
   }
 
   // 捕获当前播放位置（本地备份；B 站未恢复断点时兜底 seek）
@@ -244,6 +300,7 @@ var BiliPlayer = (function () {
       if (clickNextPart(next)) {
         part = next;
         await saveCurrentPart(); // 立即记录已切换到的新分P，并清除误判的 done
+        syncUrlPart();           // 把 URL p 同步为新分P（F5 后仍能正确恢复）
         return;
       }
       const u = new URL(location.href);
@@ -258,6 +315,7 @@ var BiliPlayer = (function () {
       if (clickNextPart(next)) {
         part = next;
         await saveCurrentPart();
+        syncUrlPart();
         return;
       }
       console.warn('[BiliPlaylist] 无法确定分P总数且未找到下一分P，不自动跳转下一视频（避免误判）');

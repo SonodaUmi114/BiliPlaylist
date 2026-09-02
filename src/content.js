@@ -159,8 +159,15 @@ async function handleVideoCompleted(bvid) {
       return;
     }
     const mode = await BiliStorage.getPlayerMode();
+    // 下一个视频也从它自己的断点分P继续（未看过则第 1P）
+    let p = 1;
+    try {
+      const progress = await BiliStorage.getProgress();
+      const np = progress[next.bvid];
+      if (np && !np.done && np.part > 0) p = np.part;
+    } catch (e) { /* 忽略 */ }
     location.href = 'https://www.bilibili.com/video/' + next.bvid +
-      '?p=1&fromPlaylist=1&playerMode=' + mode;
+      '?p=' + p + '&fromPlaylist=1&playerMode=' + mode;
   } catch (e) {
     console.error('[BiliPlaylist] 跳转下一视频失败', e);
   }
