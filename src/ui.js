@@ -112,6 +112,7 @@ var BiliUI = (function () {
     .author { font-size: 12px; color: #9499a0; margin-top: 2px; }
     .meta { font-size: 12px; color: #9499a0; margin-top: 4px; }
     .meta .done { color: #00aeec; font-weight: 600; }
+    .meta .watching { color: #00b578; font-weight: 600; }
     .actions { display: flex; flex-direction: column; gap: 4px; }
     .actions .play:hover { color: #00aeec; border-color: #00aeec; }
     .actions button {
@@ -294,6 +295,63 @@ var BiliUI = (function () {
     return rebuilt;
   }
 
+  // 条目是否算「已看完」：done 且（分P数可知时 part>=pages）
+  function isItemWatched(it, progress) {
+    const p = progress[it.bvid];
+    if (!p || !p.done) return false;
+    const pages = it.pages;
+    if (typeof pages === 'number') return (p.part || 1) >= pages;
+    return true;
+  }
+
+  // 每组（含「未分组」隐含组）的「正在看」：
+  //  - 组内从未有任何进度 → 无
+  //  - 否则在「未看完」里取进度最近更新的；未看完的都没有进度（如刚看完前几个）→ 取第一个未看完
+  //  - 全部已看完 → 取进度最近更新的（最后看完的那条）
+  function pickWatching(members, progress) {
+    if (!members.length) return null;
+    const anyProg = members.some((it) => progress[it.bvid]);
+    if (!anyProg) return null; // 从未看过 → 无绿标
+    const nonWatched = members.filter((it) => !isItemWatched(it, progress));
+    const pool = nonWatched.length ? nonWatched : members;
+    let best = null;
+    let bestT = -1;
+    for (const it of pool) {
+      const t = (progress[it.bvid] && progress[it.bvid].updatedAt) || 0;
+      if (t > bestT) { bestT = t; best = it.bvid; }
+    }
+    if (best) return best;
+    return pool[0].bvid; // 未看完的都没有进度 → 第一个未看完（看完 1-3 后应标第 4 个）
+  }
+
+  // 计算「正在看」bvid 集合：每个真实分组 + 未分组（作为一个整体）各至多/各应恰好一个（未看过则为 0 个）
+  function computeWatchingBvids(items, progress) {
+    const watching = new Set();
+    const byGroup = new Map();
+    for (const it of items) {
+      const gid = it.groupId || null;
+      if (!byGroup.has(gid)) byGroup.set(gid, []);
+      byGroup.get(gid).push(it);
+    }
+    for (const [, members] of byGroup) {
+      const bvid = pickWatching(members, progress);
+      if (bvid) watching.add(bvid);
+    }
+    return watching;
+  }
+
+  // 条目 meta 文本（含分P/时间/正在看/已看完 标记），供渲染与轻量原地更新共用
+  function itemMetaHtml(it, p, watching) {
+    const pages = it.pages || '?';
+    const part = p.part || 1;
+    const time = p.time || 0;
+    const done = !!(p.done && (typeof pages === 'number' ? part >= pages : true));
+    let h = part + '/' + pages + ' · ' + fmtTime(time);
+    if (watching && watching.has(it.bvid)) h += ' · <span class="watching">● 正在看</span>';
+    if (done) h += ' · <span class="done">✓ 已看完</span>';
+    return h;
+  }
+
   // ---------- 初始化（顶层 frame 调用） ----------
   async function initTop() {
     const u = new URL(location.href);
@@ -470,6 +528,8 @@ var BiliUI = (function () {
       return;
     }
     listEl.innerHTML = '';
+    // 「正在看」：每个分组（含未分组）各算一个（从未看过则 0 个）
+    const watching = computeWatchingBvids(items, progress);
     const n = items.length;
     let i = 0;
     while (i < n) {
@@ -487,26 +547,21 @@ var BiliUI = (function () {
         listEl.appendChild(buildFolderHead(grp, members[0], members.length, progress, allSel, someSel, collapsed));
         if (!collapsed) {
           for (let k = 0; k < members.length; k++) {
-            listEl.appendChild(buildItem(items[i + k], i + k, progress, true));
+            listEl.appendChild(buildItem(items[i + k], i + k, progress, true, watching));
           }
         }
         i = j;
         continue;
       }
-      listEl.appendChild(buildItem(it, i, progress, false));
+      listEl.appendChild(buildItem(it, i, progress, false, watching));
       i++;
     }
     updateSortCount();
   }
 
   // 渲染单个视频条目（grouped = 是否组内成员，带缩进）
-  function buildItem(it, idx, progress, grouped) {
+  function buildItem(it, idx, progress, grouped, watching) {
     const p = progress[it.bvid] || {};
-    const pages = it.pages || '?';
-    const part = p.part || 1;
-    const time = p.time || 0;
-    // 仅当确实看到最后一分P才显示已看完（避免误判，如 1/7 却被标成已看完）
-    const done = !!(p.done && (typeof pages === 'number' ? part >= pages : true));
     const current = isVideoPage && it.bvid === currentBvid;
     const selected = sortMode && biliSel.has(it.bvid);
     const li = document.createElement('li');
@@ -519,9 +574,7 @@ var BiliUI = (function () {
       '<div class="item-main">' +
         '<div class="title">' + escapeHtml(it.title || it.bvid) + '</div>' +
         (it.author ? '<div class="author">' + escapeHtml(it.author) + '</div>' : '') +
-        '<div class="meta">' + part + '/' + pages + ' · ' + fmtTime(time) +
-          (done ? ' · <span class="done">✓ 已看完</span>' : '') +
-        '</div>' +
+        '<div class="meta">' + itemMetaHtml(it, p, watching) + '</div>' +
       '</div>' +
       '<div class="actions">' +
         '<button class="play" title="播放">▶</button>' +
@@ -911,7 +964,8 @@ var BiliUI = (function () {
             const partIdx = it.history.page || 1;
             const time = Math.floor(it.progress || 0);
             // B 站 view_at 为「秒」，本地 updatedAt 用 Date.now()「毫秒」——统一乘 1000 后比较，否则官方永远显得更旧、永不覆盖（Bug②）
-            const viewAtMs = (it.history.view_at || 0) * 1000;
+            const viewAt = it.history.view_at || 0;   // 秒（历史备份沿用）
+            const viewAtMs = viewAt * 1000;           // 毫秒（与本地 updatedAt 比较）
             const prev = progress[bvid];
             // 官方记录比本地新才覆盖（正在看的本地值比 B 站旧记录新时保留本地）
             if (!prev || viewAtMs >= (prev.updatedAt || 0)) {
@@ -1622,17 +1676,14 @@ var BiliUI = (function () {
     if (!panel.classList.contains('open')) return; // 侧边栏未打开：不做 DOM 更新（保存侧不受限）
     BiliStorage.getProgress().then((progress) => {
       if (!progress) return;
+      // 重算「正在看」：看完某条后绿标会递进到组内下一条
+      const watching = computeWatchingBvids(currentItems, progress);
       for (const li of listEl.querySelectorAll('.item[data-bvid]')) {
         const it = currentItems.find((x) => x.bvid === li.dataset.bvid);
         const p = progress[li.dataset.bvid];
-        if (!it || !p) continue;
         const meta = li.querySelector('.meta');
-        if (!meta) continue;
-        const pages = it.pages || '?';
-        const part = p.part || 1;
-        const done = !!(p.done && (typeof pages === 'number' ? part >= pages : true));
-        const txt = part + '/' + pages + ' · ' + fmtTime(p.time || 0) +
-          (done ? ' · <span class="done">✓ 已看完</span>' : '');
+        if (!it || !meta) continue;
+        const txt = itemMetaHtml(it, p || {}, watching);
         if (meta.innerHTML !== txt) meta.innerHTML = txt;
       }
       // 折叠组头的首条摘要（组内第一个视频正在播放时）
