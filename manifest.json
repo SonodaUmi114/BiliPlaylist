@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "BiliPlaylist - B站播放列表",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "在 B 站添加播放列表能力：UP 主空间/搜索页多选批量加入、侧边栏播放列表（排序分组/文件夹）、分P连播、播放进度与窗口模式记忆。",
   "minimum_chrome_version": "109",
   "permissions": [
