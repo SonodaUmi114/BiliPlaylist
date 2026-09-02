@@ -915,7 +915,7 @@ var BiliUI = (function () {
             const prev = progress[bvid];
             // 官方记录比本地新才覆盖（正在看的本地值比 B 站旧记录新时保留本地）
             if (!prev || viewAtMs >= (prev.updatedAt || 0)) {
-              progress[bvid] = { part: partIdx, time, updatedAt: viewAtMs || Date.now() };
+              progress[bvid] = Object.assign({}, prev || {}, { part: partIdx, time, updatedAt: viewAtMs || Date.now() });
               changed = true;
               updated++;
             }

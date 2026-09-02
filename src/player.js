@@ -135,7 +135,7 @@ var BiliPlayer = (function () {
       const partChanged = part !== (prev.part || 1);
       const advanced = cur - (prev.time || 0) >= 8;
       if (partChanged || advanced) {
-        progress[bvid] = { part, time: cur, updatedAt: Date.now(), source: 'tick' };
+        progress[bvid] = Object.assign({}, prev, { part, time: cur, updatedAt: Date.now(), source: 'tick' });
         await BiliStorage.saveProgress(progress);
       }
     } catch (e) { /* 忽略 */ }
@@ -150,7 +150,7 @@ var BiliPlayer = (function () {
       const p = progress[bvid] || {};
       // 分P变化时必须保存（新分P时间往往从 0 开始，比旧分P的 time 小）；同分P才按时间更靠后保存
       if (cur > 5 && (part !== (p.part || 1) || cur >= (p.time || 0))) {
-        progress[bvid] = { part, time: cur, updatedAt: Date.now(), source: 'player' };
+        progress[bvid] = Object.assign({}, p, { part, time: cur, updatedAt: Date.now(), source: 'player' });
         await BiliStorage.saveProgress(progress);
       }
       // B 站播放器未恢复（5s 后仍在开头）且本地有断点 → 兜底 seek（仅相同分P才应用，避免跨分P串位置）
@@ -180,7 +180,7 @@ var BiliPlayer = (function () {
       const progress = await BiliStorage.getProgress();
       const prev = progress[bvid] || {};
       if (part !== (prev.part || 1) || time >= (prev.time || 0) || !(prev.updatedAt || 0)) {
-        progress[bvid] = { part, time, updatedAt: Date.now(), source: 'local' };
+        progress[bvid] = Object.assign({}, prev, { part, time, updatedAt: Date.now(), source: 'local' });
         await BiliStorage.saveProgress(progress);
       }
     } catch (e) { /* 忽略 */ }
@@ -324,10 +324,11 @@ var BiliPlayer = (function () {
     // 3) 分P总数已知且已到最后一P → 标记完成 + 通知跳转列表下一个视频
     console.log('[BiliPlaylist] bvid=' + bvid + ' 全部播完，通知跳转下一视频');
     try {
+      const end = Math.max(0, Math.floor((video && video.duration) || (video && video.currentTime) || 0));
       const progress = await BiliStorage.getProgress();
       progress[bvid] = Object.assign({}, progress[bvid] || {}, {
         part,
-        time: 0,
+        time: end, // 记到最后一秒，断点落在末尾（不再写 0）
         done: true,
         updatedAt: Date.now()
       });
